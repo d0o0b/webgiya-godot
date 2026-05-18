@@ -22,6 +22,28 @@ Extra verification options:
 godot --path . --scene res://scenes/Main.tscn -- --screenshots --screenshot-scenes=cornell-box,sponza --screenshot-modes=direct,indirect,combined --screenshot-views=default,left,right,high --screenshot-delay=0.5
 ```
 
+## Image comparison
+
+```powershell
+godot --headless --path . --scene res://scenes/Main.tscn -- --compare --compare-reference=screenshots\reference.png --compare-candidate=screenshots\candidate.png --compare-diff=screenshots\diff.png --compare-report=screenshots\compare.json
+```
+
+The compare command reports MAE, RMSE, max channel error, and percent of pixels over 0.02, 0.05, and 0.10 error thresholds.
+
+Reference screenshots can be captured from the original Vite/WebGPU project with:
+
+```powershell
+.\tools\capture-reference.ps1 -Scenes cornell-box,sponza
+```
+
+On some Windows/browser builds, headless Edge may capture the reference loading overlay instead of a completed WebGPU frame. The script warns when the output is suspiciously small; in that case, capture the reference image from a normal WebGPU-capable browser session and use the same compare command.
+
+Then compare a pair with:
+
+```powershell
+.\tools\compare-pair.ps1 -Reference screenshots\reference\cornell-box-reference.png -Candidate screenshots\cornell-box-combined-default-20260518-121129-131.png -Diff screenshots\cornell-diff.png -Report screenshots\cornell-compare.json
+```
+
 ## Controls
 
 - Left mouse drag: orbit.
