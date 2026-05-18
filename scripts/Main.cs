@@ -18,12 +18,26 @@ public partial class Main : Node3D
     private const int FacePosZ = 1 << 5;
     private const int AllBoxFaces = FaceNegX | FacePosX | FaceNegY | FacePosY | FaceNegZ | FacePosZ;
     private const float ReferenceSurfelSpacing = 0.08f;
+    private const int ReferenceSurfelTileSize = 8;
 
     private enum GiOutputMode
     {
         Direct,
         Indirect,
         Combined,
+    }
+
+    private enum RenderQuality
+    {
+        Balanced,
+        High,
+        Ultra,
+    }
+
+    private enum SurfelSamplingMode
+    {
+        ReferenceVisible,
+        GeometryArea,
     }
 
     private sealed class ScenePreset
@@ -42,6 +56,12 @@ public partial class Main : Node3D
         public float OcclusionShadowStrength { get; init; } = 0.8f;
         public float BleedReduction { get; init; } = 0.1f;
         public float AlbedoBoost { get; init; } = 1.0f;
+        public float ShadowMaxDistance { get; init; } = 60.0f;
+        public float ShadowBias { get; init; } = 0.02f;
+        public float ShadowNormalBias { get; init; } = 1.0f;
+        public float SdfgiBounceFeedback { get; init; } = 0.65f;
+        public float SsaoRadius { get; init; } = 2.0f;
+        public float SsilRadius { get; init; } = 5.0f;
     }
 
     private readonly struct SurfelSample
@@ -84,6 +104,22 @@ public partial class Main : Node3D
         public Vector2 UvC { get; }
         public bool HasUv { get; }
         public float Area { get; }
+    }
+
+    private readonly struct TileSurfelCandidate
+    {
+        public TileSurfelCandidate(SurfelSample sample, float depthSquared, int tileIndex, uint orderKey)
+        {
+            Sample = sample;
+            DepthSquared = depthSquared;
+            TileIndex = tileIndex;
+            OrderKey = orderKey;
+        }
+
+        public SurfelSample Sample { get; }
+        public float DepthSquared { get; }
+        public int TileIndex { get; }
+        public uint OrderKey { get; }
     }
 
     private sealed class SurfaceMaterialSampler
@@ -148,6 +184,9 @@ public partial class Main : Node3D
             CameraPosition = new Vector3(0, 2.3f, 11),
             CameraTarget = new Vector3(0, 2.3f, 1),
             OcclusionShadowStrength = 0.5f,
+            ShadowMaxDistance = 24.0f,
+            SsaoRadius = 1.3f,
+            SsilRadius = 3.0f,
         },
         new ScenePreset
         {
@@ -158,6 +197,7 @@ public partial class Main : Node3D
             CameraPosition = new Vector3(0, 3, 13),
             CameraTarget = new Vector3(0, 2, 0),
             OcclusionShadowStrength = 0.8f,
+            ShadowMaxDistance = 40.0f,
         },
         new ScenePreset
         {
@@ -169,6 +209,7 @@ public partial class Main : Node3D
             CameraTarget = new Vector3(0, 2, 0),
             OcclusionShadowStrength = 1.2f,
             BleedReduction = 0.1f,
+            ShadowMaxDistance = 42.0f,
         },
         new ScenePreset
         {
@@ -180,6 +221,9 @@ public partial class Main : Node3D
             CameraTarget = Vector3.Zero,
             OcclusionShadowStrength = 0.5f,
             BleedReduction = 0.1f,
+            ShadowMaxDistance = 18.0f,
+            SsaoRadius = 1.2f,
+            SsilRadius = 2.5f,
         },
         new ScenePreset
         {
@@ -197,6 +241,12 @@ public partial class Main : Node3D
             OcclusionShadowStrength = 0.6f,
             BleedReduction = 0.25f,
             AlbedoBoost = 1.2f,
+            ShadowMaxDistance = 110.0f,
+            ShadowBias = 0.012f,
+            ShadowNormalBias = 0.65f,
+            SdfgiBounceFeedback = 0.72f,
+            SsaoRadius = 2.4f,
+            SsilRadius = 6.0f,
         },
         new ScenePreset
         {
@@ -214,6 +264,12 @@ public partial class Main : Node3D
             OcclusionShadowStrength = 0.6f,
             BleedReduction = 0.25f,
             AlbedoBoost = 1.2f,
+            ShadowMaxDistance = 120.0f,
+            ShadowBias = 0.012f,
+            ShadowNormalBias = 0.65f,
+            SdfgiBounceFeedback = 0.72f,
+            SsaoRadius = 2.4f,
+            SsilRadius = 6.0f,
         },
     };
 
@@ -261,12 +317,21 @@ public partial class Main : Node3D
     private float _presetOcclusionShadowStrength = 0.8f;
     private float _presetBleedReduction = 0.1f;
     private float _presetAlbedoBoost = 1.0f;
+    private float _presetShadowMaxDistance = 60.0f;
+    private float _presetShadowBias = 0.02f;
+    private float _presetShadowNormalBias = 1.0f;
+    private float _presetSdfgiBounceFeedback = 0.65f;
+    private float _presetSsaoRadius = 2.0f;
+    private float _presetSsilRadius = 5.0f;
+    private RenderQuality _renderQuality = RenderQuality.High;
+    private SurfelSamplingMode _surfelSamplingMode = SurfelSamplingMode.ReferenceVisible;
     private GiOutputMode _giMode = GiOutputMode.Combined;
     private bool _syncingControls;
     private string _screenshotViewName = "default";
     private bool _surfelPreviewEnabled;
     private bool _surfelLightsEnabled;
     private bool _exportSurfelDataDuringScreenshots;
+    private bool _exportRenderMetadataDuringScreenshots;
     private bool _hideUiDuringScreenshots;
     private float _surfelPreviewSize = 0.035f;
     private int _surfelPreviewBudget = 8192;
@@ -282,9 +347,13 @@ public partial class Main : Node3D
         BuildUi();
 
         var args = ParseArguments();
+        _renderQuality = ParseRenderQuality(args.GetValueOrDefault("render-quality"), RenderQuality.High);
+        _surfelSamplingMode = ParseSurfelSamplingMode(args.GetValueOrDefault("surfel-sampling"), SurfelSamplingMode.ReferenceVisible);
+        ConfigureViewportQuality();
         _surfelPreviewEnabled = args.ContainsKey("surfel-debug");
         _surfelLightsEnabled = ParseBool(args.GetValueOrDefault("surfel-lights"), false) && !args.ContainsKey("no-surfel-lights");
         _exportSurfelDataDuringScreenshots = args.ContainsKey("export-surfels");
+        _exportRenderMetadataDuringScreenshots = args.ContainsKey("export-render-report");
         _surfelLightCount = Mathf.Clamp(ParseInt(args.GetValueOrDefault("surfel-light-count"), _surfelLightCount), 0, 64);
         _surfelLightEnergy = Mathf.Clamp(ParseFloat(args.GetValueOrDefault("surfel-light-energy"), _surfelLightEnergy), 0.0f, 2.0f);
         _surfelPreviewSize = Mathf.Clamp(ParseFloat(args.GetValueOrDefault("surfel-size"), _surfelPreviewSize), 0.002f, 0.25f);
@@ -449,6 +518,23 @@ public partial class Main : Node3D
 
         _surfelLightRoot = new Node3D { Name = "SurfelLights" };
         AddChild(_surfelLightRoot);
+    }
+
+    private void ConfigureViewportQuality()
+    {
+        var viewport = GetViewport();
+        var msaa = _renderQuality switch
+        {
+            RenderQuality.Ultra => 3,
+            RenderQuality.High => 2,
+            _ => 1,
+        };
+
+        viewport.Set("msaa_3d", msaa);
+        viewport.Set("screen_space_aa", 1);
+        viewport.Set("use_taa", _renderQuality != RenderQuality.Balanced);
+        viewport.Set("use_debanding", true);
+        viewport.Set("texture_mipmap_bias", _renderQuality == RenderQuality.Ultra ? -0.65f : -0.35f);
     }
 
     private void BuildUi()
@@ -722,6 +808,12 @@ public partial class Main : Node3D
         _presetOcclusionShadowStrength = preset.OcclusionShadowStrength;
         _presetBleedReduction = preset.BleedReduction;
         _presetAlbedoBoost = preset.AlbedoBoost;
+        _presetShadowMaxDistance = preset.ShadowMaxDistance;
+        _presetShadowBias = preset.ShadowBias;
+        _presetShadowNormalBias = preset.ShadowNormalBias;
+        _presetSdfgiBounceFeedback = preset.SdfgiBounceFeedback;
+        _presetSsaoRadius = preset.SsaoRadius;
+        _presetSsilRadius = preset.SsilRadius;
         _lightSpeed = 0.5f;
         _animateLight.ButtonPressed = false;
         _lightAnimationTime = 0.0f;
@@ -748,7 +840,12 @@ public partial class Main : Node3D
         _environment.Set("sdfgi_bounce_feedback", 0.65f);
         _environment.Set("sdfgi_read_sky_light", true);
         _environment.Set("glow_enabled", true);
-        _environment.Set("glow_intensity", 0.08f);
+        _environment.Set("glow_intensity", _renderQuality == RenderQuality.Balanced ? 0.04f : 0.08f);
+        _environment.Set("adjustment_enabled", true);
+        _environment.Set("adjustment_brightness", 1.0f);
+        _environment.Set("adjustment_contrast", 1.02f);
+        _environment.Set("adjustment_saturation", 1.0f);
+        ApplyPresetEnvironmentQuality();
 
         var texture = ResourceLoader.Load<Texture2D>(preset.HdrPath);
         if (texture != null)
@@ -765,6 +862,28 @@ public partial class Main : Node3D
     {
         ApplyManualLightAngles();
         ApplySunEnergy();
+        ApplyPresetShadowQuality();
+    }
+
+    private void ApplyPresetEnvironmentQuality()
+    {
+        if (_environment == null)
+        {
+            return;
+        }
+
+        _environment.Set("ssao_radius", _presetSsaoRadius);
+        _environment.Set("ssao_intensity", 0.9f + _presetOcclusionShadowStrength * 1.25f);
+        _environment.Set("ssil_radius", _presetSsilRadius);
+        _environment.Set("sdfgi_bounce_feedback", _presetSdfgiBounceFeedback);
+    }
+
+    private void ApplyPresetShadowQuality()
+    {
+        _sun.Set("directional_shadow_max_distance", _presetShadowMaxDistance);
+        _sun.Set("shadow_bias", _presetShadowBias);
+        _sun.Set("shadow_normal_bias", _presetShadowNormalBias);
+        _sun.Set("directional_shadow_fade_start", 0.82f);
     }
 
     private void ApplyManualLightAngles()
@@ -966,12 +1085,40 @@ public partial class Main : Node3D
         {
             mesh.CastShadow = GeometryInstance3D.ShadowCastingSetting.On;
             mesh.Set("gi_mode", 1);
+            NormalizeMeshMaterials(mesh);
         }
 
         foreach (var child in node.GetChildren())
         {
             ConfigureGeometry(child);
         }
+    }
+
+    private void NormalizeMeshMaterials(MeshInstance3D mesh)
+    {
+        NormalizeMaterial(mesh.MaterialOverride);
+        if (mesh.Mesh == null)
+        {
+            return;
+        }
+
+        for (var surface = 0; surface < mesh.Mesh.GetSurfaceCount(); surface++)
+        {
+            NormalizeMaterial(mesh.GetSurfaceOverrideMaterial(surface));
+            NormalizeMaterial(mesh.Mesh.SurfaceGetMaterial(surface));
+        }
+    }
+
+    private static void NormalizeMaterial(Material? material)
+    {
+        if (material is not StandardMaterial3D standard)
+        {
+            return;
+        }
+
+        standard.Set("texture_filter", 5);
+        standard.Roughness = Mathf.Clamp(standard.Roughness, 0.18f, 1.0f);
+        standard.Metallic = Mathf.Clamp(standard.Metallic, 0.0f, 1.0f);
     }
 
     private void SetSurfelPreviewEnabled(bool enabled)
@@ -1029,13 +1176,20 @@ public partial class Main : Node3D
         {
             var size = _surfelPreviewSize * sceneScale * samples[i].DisplayScale;
             var basis = MakeSurfelPreviewBasis(samples[i].Normal, size);
-            multimesh.SetInstanceTransform(i, new Transform3D(basis, samples[i].Position));
+            var cameraOffset = _camera.GlobalPosition - samples[i].Position;
+            var previewPosition = samples[i].Position;
+            if (cameraOffset.LengthSquared() > 0.001f)
+            {
+                previewPosition += cameraOffset.Normalized() * size * 0.35f;
+            }
+
+            multimesh.SetInstanceTransform(i, new Transform3D(basis, previewPosition));
             multimesh.SetInstanceColor(i, samples[i].Color);
         }
 
         _surfelPreview.Multimesh = multimesh;
         _surfelPreview.Visible = true;
-        GD.Print($"Built surfel preview: {samples.Count} surfels");
+        GD.Print($"Built surfel preview: {samples.Count} surfels ({SurfelSamplingModeName(_surfelSamplingMode)} sampling)");
     }
 
     private static Basis MakeSurfelPreviewBasis(Vector3 normal, float size)
@@ -1061,7 +1215,7 @@ public partial class Main : Node3D
             return;
         }
 
-        var samples = CreateSurfelSamples(Mathf.Clamp(Mathf.Max(_surfelPreviewBudget, _surfelLightCount * 64), 256, 32768));
+        var samples = CreateSurfelSamples(Mathf.Clamp(Mathf.Max(_surfelPreviewBudget, _surfelLightCount * 64), 256, 65536));
         if (samples.Count == 0)
         {
             _surfelLightRoot.Visible = false;
@@ -1117,11 +1271,107 @@ public partial class Main : Node3D
 
     private List<SurfelSample> CreateSurfelSamples(int budget)
     {
-        budget = Mathf.Clamp(budget, 1, 32768);
+        budget = Mathf.Clamp(budget, 1, 65536);
+        if (_surfelSamplingMode == SurfelSamplingMode.ReferenceVisible)
+        {
+            var visibleSamples = CreateReferenceVisibleSurfelSamples(budget);
+            if (visibleSamples.Count > 0)
+            {
+                return visibleSamples;
+            }
+        }
+
+        return CreateGeometrySurfelSamples(budget);
+    }
+
+    private List<SurfelSample> CreateGeometrySurfelSamples(int budget)
+    {
+        budget = Mathf.Clamp(budget, 1, 65536);
         var samples = new List<SurfelSample>(budget);
         var meshCount = Mathf.Max(1, CountMeshInstances(_sceneRoot));
         CollectSurfelSamples(_sceneRoot, samples, budget, meshCount);
         return samples;
+    }
+
+    private List<SurfelSample> CreateReferenceVisibleSurfelSamples(int budget)
+    {
+        var viewportSize = GetViewport().GetVisibleRect().Size;
+        var width = Mathf.RoundToInt(viewportSize.X);
+        var height = Mathf.RoundToInt(viewportSize.Y);
+        if (width <= 0 || height <= 0 || _camera == null)
+        {
+            return new List<SurfelSample>();
+        }
+
+        var candidateBudget = Mathf.Clamp(budget * 10, budget, 65536);
+        var candidates = CreateGeometrySurfelSamples(candidateBudget);
+        if (candidates.Count == 0)
+        {
+            return candidates;
+        }
+
+        var tileWidth = Mathf.Max(1, Mathf.CeilToInt(width / (float)ReferenceSurfelTileSize));
+        var tileHeight = Mathf.Max(1, Mathf.CeilToInt(height / (float)ReferenceSurfelTileSize));
+        var tileCount = tileWidth * tileHeight;
+        var tileHits = new TileSurfelCandidate[tileCount];
+        var tileHasHit = new bool[tileCount];
+        var cameraPosition = _camera.GlobalPosition;
+        var cameraForward = -_camera.GlobalTransform.Basis.Z.Normalized();
+
+        foreach (var candidate in candidates)
+        {
+            var toSample = candidate.Position - cameraPosition;
+            var forwardDepth = toSample.Dot(cameraForward);
+            if (forwardDepth <= 0.01f)
+            {
+                continue;
+            }
+
+            if (candidate.Normal.LengthSquared() > 0.001f)
+            {
+                var towardCamera = -toSample.Normalized();
+                if (candidate.Normal.Normalized().Dot(towardCamera) < -0.2f)
+                {
+                    continue;
+                }
+            }
+
+            var screen = _camera.UnprojectPosition(candidate.Position);
+            if (screen.X < 0.0f || screen.Y < 0.0f || screen.X >= width || screen.Y >= height)
+            {
+                continue;
+            }
+
+            var tileX = Mathf.Clamp((int)(screen.X / ReferenceSurfelTileSize), 0, tileWidth - 1);
+            var tileY = Mathf.Clamp((int)(screen.Y / ReferenceSurfelTileSize), 0, tileHeight - 1);
+            var tileIndex = tileY * tileWidth + tileX;
+            var depthSquared = toSample.LengthSquared();
+            if (tileHasHit[tileIndex] && depthSquared >= tileHits[tileIndex].DepthSquared)
+            {
+                continue;
+            }
+
+            tileHasHit[tileIndex] = true;
+            tileHits[tileIndex] = new TileSurfelCandidate(candidate, depthSquared, tileIndex, HashTile(tileX, tileY));
+        }
+
+        var visible = new List<TileSurfelCandidate>(Math.Min(tileCount, budget));
+        for (var tileIndex = 0; tileIndex < tileCount; tileIndex++)
+        {
+            if (tileHasHit[tileIndex])
+            {
+                visible.Add(tileHits[tileIndex]);
+            }
+        }
+
+        if (visible.Count <= budget)
+        {
+            visible.Sort((a, b) => a.TileIndex.CompareTo(b.TileIndex));
+            return visible.Select(hit => hit.Sample).ToList();
+        }
+
+        visible.Sort((a, b) => a.OrderKey.CompareTo(b.OrderKey));
+        return visible.Take(budget).Select(hit => hit.Sample).ToList();
     }
 
     private static List<SurfelSample> SelectSurfelLightSamples(List<SurfelSample> samples, int count)
@@ -1511,6 +1761,22 @@ public partial class Main : Node3D
         return result;
     }
 
+    private static uint HashTile(int x, int y)
+    {
+        unchecked
+        {
+            var hash = 2166136261u;
+            hash = (hash ^ (uint)x) * 16777619u;
+            hash = (hash ^ (uint)y) * 16777619u;
+            hash ^= hash >> 16;
+            hash *= 2246822519u;
+            hash ^= hash >> 13;
+            hash *= 3266489917u;
+            hash ^= hash >> 16;
+            return hash;
+        }
+    }
+
     private int CountMeshInstances(Node node)
     {
         var count = node is MeshInstance3D meshInstance && meshInstance.Mesh != null && meshInstance.Visible ? 1 : 0;
@@ -1822,6 +2088,10 @@ public partial class Main : Node3D
                 {
                     ExportSurfelData(Path.ChangeExtension(path, ".surfels.json"));
                 }
+                if (_exportRenderMetadataDuringScreenshots)
+                {
+                    ExportRenderMetadata(Path.ChangeExtension(path, ".render.json"), delay);
+                }
             }
             else
             {
@@ -1854,6 +2124,50 @@ public partial class Main : Node3D
         GD.Print($"Saved surfel data: {path}");
     }
 
+    private void ExportRenderMetadata(string path, float delay)
+    {
+        var preset = _presets[_currentPresetIndex];
+        var json = $$"""
+        {
+          "schema": "webgiya-godot.render-report.v1",
+          "scene": "{{JsonEscape(preset.Id)}}",
+          "mode": "{{_giMode.ToString().ToLowerInvariant()}}",
+          "view": "{{JsonEscape(_screenshotViewName)}}",
+          "renderQuality": "{{_renderQuality.ToString().ToLowerInvariant()}}",
+          "screenshotDelay": {{FormatFloat(delay)}},
+          "cameraPosition": {{JsonVector(_camera.GlobalPosition)}},
+          "cameraTarget": {{JsonVector(_target)}},
+          "light": {
+            "intensity": {{FormatFloat(_lightIntensity)}},
+            "azimuthDeg": {{FormatFloat(_lightAzimuthDeg)}},
+            "elevationDeg": {{FormatFloat(_lightElevationDeg)}},
+            "shadowMaxDistance": {{FormatFloat(_presetShadowMaxDistance)}},
+            "shadowBias": {{FormatFloat(_presetShadowBias)}},
+            "shadowNormalBias": {{FormatFloat(_presetShadowNormalBias)}}
+          },
+          "forwardPlusApproximation": {
+            "ambientEnergy": {{FormatFloat(_presetAmbientEnergy)}},
+            "indirectIntensity": {{FormatFloat(_indirectIntensity)}},
+            "occlusionShadowStrength": {{FormatFloat(_presetOcclusionShadowStrength)}},
+            "bleedReduction": {{FormatFloat(_presetBleedReduction)}},
+            "albedoBoost": {{FormatFloat(_presetAlbedoBoost)}},
+            "sdfgiBounceFeedback": {{FormatFloat(_presetSdfgiBounceFeedback)}},
+            "ssaoRadius": {{FormatFloat(_presetSsaoRadius)}},
+            "ssilRadius": {{FormatFloat(_presetSsilRadius)}}
+          }
+        }
+        """;
+
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        File.WriteAllText(path, json, Encoding.UTF8);
+        GD.Print($"Saved render metadata: {path}");
+    }
+
     private string BuildSurfelExportJson(List<SurfelSample> samples)
     {
         var preset = _presets[_currentPresetIndex];
@@ -1864,6 +2178,7 @@ public partial class Main : Node3D
         builder.AppendLine($"  \"scene\": \"{JsonEscape(preset.Id)}\",");
         builder.AppendLine($"  \"mode\": \"{_giMode.ToString().ToLowerInvariant()}\",");
         builder.AppendLine($"  \"view\": \"{JsonEscape(_screenshotViewName)}\",");
+        builder.AppendLine($"  \"sampling\": \"{SurfelSamplingModeName(_surfelSamplingMode)}\",");
         builder.AppendLine($"  \"count\": {samples.Count},");
         builder.AppendLine($"  \"surfelBaseRadius\": {FormatFloat(0.24f)},");
         builder.AppendLine($"  \"surfelGridCellDiameter\": {FormatFloat(0.2f)},");
@@ -2164,6 +2479,46 @@ public partial class Main : Node3D
             "1" or "true" or "yes" or "on" => true,
             "0" or "false" or "no" or "off" => false,
             _ => fallback,
+        };
+    }
+
+    private static RenderQuality ParseRenderQuality(string? value, RenderQuality fallback)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return fallback;
+        }
+
+        return value.ToLowerInvariant() switch
+        {
+            "balanced" or "preview" => RenderQuality.Balanced,
+            "high" => RenderQuality.High,
+            "ultra" => RenderQuality.Ultra,
+            _ => fallback,
+        };
+    }
+
+    private static SurfelSamplingMode ParseSurfelSamplingMode(string? value, SurfelSamplingMode fallback)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return fallback;
+        }
+
+        return value.ToLowerInvariant() switch
+        {
+            "reference" or "visible" or "screen" or "screen-space" => SurfelSamplingMode.ReferenceVisible,
+            "geometry" or "area" or "mesh" => SurfelSamplingMode.GeometryArea,
+            _ => fallback,
+        };
+    }
+
+    private static string SurfelSamplingModeName(SurfelSamplingMode mode)
+    {
+        return mode switch
+        {
+            SurfelSamplingMode.GeometryArea => "geometry",
+            _ => "reference",
         };
     }
 

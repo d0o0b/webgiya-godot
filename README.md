@@ -19,10 +19,14 @@ Automated screenshot sweeps wait at least 2 seconds after loading a preset or mo
 Extra verification options:
 
 ```powershell
-godot --path . --scene res://scenes/Main.tscn -- --screenshots --screenshot-scenes=cornell-box,sponza --screenshot-modes=direct,indirect,combined --screenshot-views=default,left,right,high --screenshot-delay=0.5
+godot --path . --scene res://scenes/Main.tscn -- --screenshots --render-quality=ultra --screenshot-scenes=cornell-box,sponza --screenshot-modes=direct,indirect,combined --screenshot-views=default,left,right,high --screenshot-delay=0.5
 ```
 
-Use `--screenshot-hide-ui` when capturing images for diff comparison. Use `--surfel-debug` to render the GPU-instanced surfel preview. The debug surfel overlay uses surface-aligned GPU-instanced quads, samples visible hand-built box faces and imported mesh triangles by surface area, and colors imported surfels from albedo UVs. Use `--surfel-size=<value>` and `--surfel-budget=<count>` for automated surfel debug captures.
+`--render-quality` accepts `balanced`, `high`, or `ultra`. `high` is the default desktop target.
+
+Use `--screenshot-hide-ui` when capturing images for diff comparison. Use `--surfel-debug` to render the GPU-instanced surfel preview. The default `--surfel-sampling=reference` mode approximates the reference G-buffer allocation pass by projecting dense surface candidates into 8x8 camera tiles and keeping the nearest visible surfel per tile. Use `--surfel-sampling=geometry` for the old whole-scene area sampler. The overlay uses surface-aligned GPU-instanced quads, visible hand-built box faces, imported mesh triangle candidates, and albedo UV colors for imported materials. Use `--surfel-size=<value>` and `--surfel-budget=<count>` for automated surfel debug captures.
+
+Use `--export-render-report` to write a `.render.json` sidecar next to each screenshot with the active camera, light, shadow, Forward+ quality, SDFGI, SSAO, and SSIL settings.
 
 Use `--export-surfels` to write a `.surfels.json` sidecar next to each screenshot. The export contains scene, camera, bounds, position, normal, camera-relative radius, and albedo records for the sampled surfel set. Use `--surfel-export-limit=<count>` to cap the exported records.
 

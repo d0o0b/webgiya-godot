@@ -30,7 +30,7 @@ The first Godot slice establishes the verification loop and visual baseline:
 - Screenshot sweeps across output modes and camera view variants.
 - UI-free screenshot option for image-diff captures.
 - GPU-instanced surfel preview/debug mode generated from scene mesh samples.
-- Surfel preview now uses tagged visible faces for hand-built box scenes, area-weighted box-face sampling, deterministic triangle-area sampling for imported meshes, surface-aligned GPU-instanced quads, density/scene-scaled marker sizes, and albedo UV colors for imported materials.
+- Surfel preview now defaults to reference-style visible sampling: dense surface candidates are projected into 8x8 camera tiles, the nearest visible candidate per tile is retained, and the old whole-scene area sampler remains available as `--surfel-sampling=geometry`.
 - Imported surfel preview colors now sample albedo textures by UV, with scene transport albedo boost applied where the reference defines it.
 - Screenshot runs can export structured surfel records as JSON sidecars with position, normal, camera-relative radius, albedo, bounds, and camera metadata for later RenderingDevice/compositor integration.
 - Optional low-count surfel-derived colored OmniLight field for bounced color bleeding experiments in combined and indirect modes.
@@ -38,6 +38,9 @@ The first Godot slice establishes the verification loop and visual baseline:
 - Browser-based reference screenshot helper for the original Vite/WebGPU project.
 - Reference helper warns when headless browser capture returns the loading overlay instead of a completed WebGPU frame.
 - Direct, indirect, and combined output modes approximated with Godot SDFGI, SSIL, ambient, and directional light controls.
+- Forward+ is now the accepted desktop target renderer for this port instead of a custom WebGPU-equivalent surfel GI pipeline.
+- Render quality presets configure viewport antialiasing/debanding, per-scene shadow distance/bias, SDFGI bounce feedback, SSAO, and SSIL.
+- Screenshot runs can export render metadata sidecars with camera, light, shadow, quality, SDFGI, SSAO, and SSIL settings.
 - Runtime light controls for azimuth, elevation, intensity, auto-animation, and animation speed.
 - Runtime surfel preview controls for visibility, size, and sample budget.
 - Runtime surfel light controls for enable, count, and energy.
@@ -49,11 +52,10 @@ Godot does not expose the same WebGPU compute render graph through normal scene 
 
 1. Keep the current Godot scene/preset/screenshot harness as the quality gate.
 2. Validate all asset imports and fix scale/material differences per preset.
-3. Replace the current SDFGI/SSIL approximation with a custom RenderingDevice or CompositorEffect surfel pass if exact WebGPU parity is required.
-4. Port the surfel data model: pool, alive list, radial depth moments, hash grid, dispatch args.
-5. Port BVH or replace it with Godot-friendly acceleration data for compute ray queries.
-6. Match the reference resolve/composite modes: direct, indirect, combined, debug overlays.
-7. Use the reference capture helper and built-in compare command to tune each scene/camera preset.
+3. Tune Forward+ presets against stable reference screenshots instead of porting the WebGPU compute pipeline.
+4. Audit imported material differences per asset: normal maps, alpha, roughness, metallic, and color-space differences.
+5. Match the reference direct, indirect, combined, and debug overlay intent within Godot's Forward+ constraints.
+6. Use the reference capture helper and built-in compare command to tune each scene/camera preset.
 
 ## Acceptance Targets
 
