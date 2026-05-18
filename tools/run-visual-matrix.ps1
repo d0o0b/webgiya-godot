@@ -8,6 +8,10 @@ param(
     [string]$OutputDir = "screenshots\matrix",
     [string]$ReferenceDir = "screenshots\reference",
     [switch]$CaptureReference,
+    [ValidateSet("HeadedCdp", "Headless")]
+    [string]$ReferenceCaptureMode = "HeadedCdp",
+    [int]$ReferenceWaitSeconds = 5,
+    [int]$ReferenceCdpCommandTimeoutSeconds = 60,
     [int]$ReferenceMinBytes = 100000,
     [float]$Delay = 2.0
 )
@@ -50,7 +54,10 @@ if ($CaptureReference) {
     & (Join-Path $Project "tools\capture-reference.ps1") `
         -ReferenceProject $ReferenceProject `
         -OutputDir $referenceRoot `
-        -Scenes $Scenes
+        -Scenes $Scenes `
+        -CaptureMode $ReferenceCaptureMode `
+        -WaitSeconds $ReferenceWaitSeconds `
+        -CdpCommandTimeoutSeconds $ReferenceCdpCommandTimeoutSeconds
 }
 
 $sceneCsv = [string]::Join(",", $Scenes)

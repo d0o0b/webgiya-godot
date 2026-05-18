@@ -42,6 +42,7 @@ public partial class Main : Node3D
     public override void _Process(double delta)
     {
         UpdateKeyboardMovement((float)delta);
+        UpdateCameraDrivenSurfels((float)delta);
         if (_animateLight.ButtonPressed)
         {
             _lightAnimationTime += (float)delta;

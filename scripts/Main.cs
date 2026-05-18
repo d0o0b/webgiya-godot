@@ -360,6 +360,9 @@ public partial class Main : Node3D
     private int _surfelLightCount = 24;
     private int _surfelExportLimit = 8192;
     private float _surfelLightEnergy = 0.16f;
+    private bool _cameraDrivenSurfelsDirty;
+    private float _cameraDrivenSurfelsDirtyElapsed;
+    private const float CameraDrivenSurfelRebuildDelaySeconds = 0.12f;
     private const float MinAutomatedScreenshotDelaySeconds = 2.0f;
     private const float MaxScreenshotDelaySeconds = 5.0f;
 }

@@ -80,6 +80,49 @@ public partial class Main : Node3D
         GD.Print($"Built surfel preview: {samples.Count} surfels ({SurfelSamplingModeName(_surfelSamplingMode)} sampling)");
     }
 
+    private void MarkCameraDrivenSurfelsDirty()
+    {
+        if (_syncingControls || _camera == null)
+        {
+            return;
+        }
+
+        if (!_surfelPreviewEnabled && (!_surfelLightsEnabled || _surfelSamplingMode != SurfelSamplingMode.ReferenceVisible))
+        {
+            return;
+        }
+
+        _cameraDrivenSurfelsDirty = true;
+        _cameraDrivenSurfelsDirtyElapsed = 0.0f;
+    }
+
+    private void UpdateCameraDrivenSurfels(float delta)
+    {
+        if (!_cameraDrivenSurfelsDirty)
+        {
+            return;
+        }
+
+        _cameraDrivenSurfelsDirtyElapsed += delta;
+        if (_cameraDrivenSurfelsDirtyElapsed < CameraDrivenSurfelRebuildDelaySeconds)
+        {
+            return;
+        }
+
+        _cameraDrivenSurfelsDirty = false;
+        _cameraDrivenSurfelsDirtyElapsed = 0.0f;
+
+        if (_surfelPreviewEnabled)
+        {
+            RebuildSurfelPreview();
+        }
+
+        if (_surfelLightsEnabled && _surfelSamplingMode == SurfelSamplingMode.ReferenceVisible)
+        {
+            RebuildSurfelLights();
+        }
+    }
+
     private static Basis MakeSurfelPreviewBasis(Vector3 normal, float size)
     {
         var z = normal.LengthSquared() > 0.001f ? normal.Normalized() : Vector3.Up;

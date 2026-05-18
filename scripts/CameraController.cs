@@ -34,6 +34,7 @@ public partial class Main : Node3D
             _distance * cp * Mathf.Cos(_yaw));
         _camera.Position = _target + offset;
         _camera.LookAt(_target, Vector3.Up);
+        MarkCameraDrivenSurfelsDirty();
     }
 
     private void UpdateOrbitFromCurrentCamera()
@@ -57,6 +58,7 @@ public partial class Main : Node3D
 
         _target = _camera.Position + forward * _distance;
         _camera.LookAt(_target, Vector3.Up);
+        MarkCameraDrivenSurfelsDirty();
     }
 
     private void PanCamera(Vector2 pixels)
@@ -90,6 +92,7 @@ public partial class Main : Node3D
             _target += deltaMove;
             UpdateOrbitFromCurrentCamera();
             _camera.LookAt(_target, Vector3.Up);
+            MarkCameraDrivenSurfelsDirty();
         }
     }
 }
