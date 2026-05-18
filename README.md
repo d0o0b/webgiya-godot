@@ -26,17 +26,17 @@ godot --path . --scene res://scenes/Main.tscn -- --screenshots --render-quality=
 
 Use `--screenshot-hide-ui` when capturing images for diff comparison. Use `--surfel-debug` to render the GPU-instanced surfel preview. The default `--surfel-sampling=reference` mode approximates the reference G-buffer allocation pass by projecting dense surface candidates into 8x8 camera tiles and keeping the nearest visible surfel per tile. Use `--surfel-sampling=geometry` for the old whole-scene area sampler. The overlay uses surface-aligned GPU-instanced quads, visible hand-built box faces, imported mesh triangle candidates, and albedo UV colors for imported materials. Use `--surfel-size=<value>` and `--surfel-budget=<count>` for automated surfel debug captures.
 
-Use `--export-render-report` to write a `.render.json` sidecar next to each screenshot with the active camera, light, shadow, Forward+ quality, SDFGI, SSAO, and SSIL settings.
+Use `--export-render-report` to write a `.render.json` sidecar next to each screenshot with the active camera, light, shadow, Forward+ quality, surfel GI, and SSAO settings.
 
 Use `--export-surfels` to write a `.surfels.json` sidecar next to each screenshot. The export contains scene, camera, bounds, position, normal, camera-relative radius, and albedo records for the sampled surfel set. Use `--surfel-export-limit=<count>` to cap the exported records.
 
 Surfel lighting options:
 
 ```powershell
-godot --path . --scene res://scenes/Main.tscn -- --screenshots --screenshot-scenes=cornell-box --screenshot-modes=combined --surfel-light-count=32 --surfel-light-energy=0.45
+godot --path . --scene res://scenes/Main.tscn -- --screenshots --screenshot-scenes=cornell-box --screenshot-modes=combined --surfel-light-count=64 --surfel-light-energy=0.08
 ```
 
-The colored surfel-derived OmniLight approximation is off by default because point-light placement can reveal artifacts in simple Cornell-style scenes. Enable it with `--surfel-lights=true` when tuning color bleeding. `--surfel-light-count` is clamped to 64.
+The colored surfel-derived OmniLight approximation is on by default and is the active GI approximation for indirect and combined modes. Disable it with `--no-surfel-lights` when isolating direct lighting or debugging surfel placement. `--surfel-light-count` defaults to 64 and is clamped to 64.
 
 ## Image comparison
 

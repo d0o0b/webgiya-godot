@@ -19,7 +19,7 @@ public partial class Main : Node3D
         _surfelSamplingMode = ParseSurfelSamplingMode(args.GetValueOrDefault("surfel-sampling"), SurfelSamplingMode.ReferenceVisible);
         ConfigureViewportQuality();
         _surfelPreviewEnabled = args.ContainsKey("surfel-debug");
-        _surfelLightsEnabled = ParseBool(args.GetValueOrDefault("surfel-lights"), false) && !args.ContainsKey("no-surfel-lights");
+        _surfelLightsEnabled = ParseBool(args.GetValueOrDefault("surfel-lights"), true) && !args.ContainsKey("no-surfel-lights");
         _exportSurfelDataDuringScreenshots = args.ContainsKey("export-surfels");
         _exportRenderMetadataDuringScreenshots = args.ContainsKey("export-render-report");
         _surfelLightCount = Mathf.Clamp(ParseInt(args.GetValueOrDefault("surfel-light-count"), _surfelLightCount), 0, 64);

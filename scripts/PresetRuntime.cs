@@ -66,15 +66,11 @@ public partial class Main : Node3D
         _presetAmbientEnergy = preset.AmbientEnergy;
         _presetIndirectEnergy = 1.0f;
         _presetOcclusionShadowStrength = preset.OcclusionShadowStrength;
-        _presetBleedReduction = preset.BleedReduction;
         _presetAlbedoBoost = preset.AlbedoBoost;
         _presetShadowMaxDistance = preset.ShadowMaxDistance;
         _presetShadowBias = preset.ShadowBias;
         _presetShadowNormalBias = preset.ShadowNormalBias;
-        _presetSdfgiBounceFeedback = preset.SdfgiBounceFeedback;
-        _presetSdfgiReadSkyLight = preset.SdfgiReadSkyLight;
         _presetSsaoRadius = preset.SsaoRadius;
-        _presetSsilRadius = preset.SsilRadius;
         _presetTonemapExposure = preset.TonemapExposure;
         _presetAmbientSkyContribution = preset.AmbientSkyContribution;
         _presetAdjustmentContrast = preset.AdjustmentContrast;
@@ -99,11 +95,10 @@ public partial class Main : Node3D
         _environment.Set("ssao_enabled", true);
         _environment.Set("ssao_radius", 2.0f);
         _environment.Set("ssao_intensity", 0.9f + _presetOcclusionShadowStrength * 1.25f);
-        _environment.Set("ssil_enabled", true);
-        _environment.Set("ssil_radius", 5.0f);
-        _environment.Set("sdfgi_enabled", true);
-        _environment.Set("sdfgi_bounce_feedback", 0.65f);
-        _environment.Set("sdfgi_read_sky_light", _presetSdfgiReadSkyLight);
+        _environment.Set("ssil_enabled", false);
+        _environment.Set("ssil_intensity", 0.0f);
+        _environment.Set("sdfgi_enabled", false);
+        _environment.Set("sdfgi_energy", 0.0f);
         _environment.Set("glow_enabled", true);
         _environment.Set("glow_intensity", _renderQuality == RenderQuality.Balanced ? 0.04f : 0.08f);
         _environment.Set("adjustment_enabled", true);
@@ -139,8 +134,10 @@ public partial class Main : Node3D
 
         _environment.Set("ssao_radius", _presetSsaoRadius);
         _environment.Set("ssao_intensity", 0.9f + _presetOcclusionShadowStrength * 1.25f);
-        _environment.Set("ssil_radius", _presetSsilRadius);
-        _environment.Set("sdfgi_bounce_feedback", _presetSdfgiBounceFeedback);
+        _environment.Set("ssil_enabled", false);
+        _environment.Set("ssil_intensity", 0.0f);
+        _environment.Set("sdfgi_enabled", false);
+        _environment.Set("sdfgi_energy", 0.0f);
     }
 
     private void ApplyPresetShadowQuality()
@@ -187,11 +184,12 @@ public partial class Main : Node3D
         }
 
         var indirectScale = _giMode == GiOutputMode.Direct ? 0.0f : _indirectIntensity;
-        _environment.Set("ambient_light_energy", Mathf.Max(0.02f, _presetAmbientEnergy * indirectScale));
-        _environment.Set("sdfgi_enabled", indirectScale > 0.0f);
-        _environment.Set("sdfgi_energy", _presetIndirectEnergy * indirectScale);
-        var bleedScale = Mathf.Lerp(1.15f, 0.72f, Mathf.Clamp(_presetBleedReduction, 0.0f, 1.0f));
-        _environment.Set("ssil_intensity", _giMode == GiOutputMode.Direct ? 0.0f : indirectScale * bleedScale);
+        var ambientScale = _giMode == GiOutputMode.Direct ? 0.02f : Mathf.Max(0.02f, _presetAmbientEnergy * indirectScale * 0.18f);
+        _environment.Set("ambient_light_energy", ambientScale);
+        _environment.Set("sdfgi_enabled", false);
+        _environment.Set("sdfgi_energy", 0.0f);
+        _environment.Set("ssil_enabled", false);
+        _environment.Set("ssil_intensity", 0.0f);
         ApplySunEnergy();
         RebuildSurfelLights();
     }

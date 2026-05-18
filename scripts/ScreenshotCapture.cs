@@ -188,16 +188,19 @@ public partial class Main : Node3D
           },
           "forwardPlusApproximation": {
             "ambientEnergy": {{FormatFloat(_presetAmbientEnergy)}},
+            "ambientAppliedEnergy": {{FormatFloat(_giMode == GiOutputMode.Direct ? 0.02f : Mathf.Max(0.02f, _presetAmbientEnergy * _indirectIntensity * 0.18f))}},
             "indirectIntensity": {{FormatFloat(_indirectIntensity)}},
             "tonemapExposure": {{FormatFloat(_presetTonemapExposure)}},
             "ambientSkyContribution": {{FormatFloat(_presetAmbientSkyContribution)}},
             "occlusionShadowStrength": {{FormatFloat(_presetOcclusionShadowStrength)}},
-            "bleedReduction": {{FormatFloat(_presetBleedReduction)}},
             "albedoBoost": {{FormatFloat(_presetAlbedoBoost)}},
-            "sdfgiBounceFeedback": {{FormatFloat(_presetSdfgiBounceFeedback)}},
-            "sdfgiReadSkyLight": {{_presetSdfgiReadSkyLight.ToString().ToLowerInvariant()}},
+            "sdfgiEnabled": false,
+            "ssilEnabled": false,
+            "surfelLightsEnabled": {{(_surfelLightsEnabled && _giMode != GiOutputMode.Direct).ToString().ToLowerInvariant()}},
+            "surfelSampling": "{{SurfelSamplingModeName(_surfelSamplingMode)}}",
+            "surfelLightCount": {{_surfelLightCount}},
+            "surfelLightEnergy": {{FormatFloat(_surfelLightEnergy)}},
             "ssaoRadius": {{FormatFloat(_presetSsaoRadius)}},
-            "ssilRadius": {{FormatFloat(_presetSsilRadius)}},
             "adjustmentContrast": {{FormatFloat(_presetAdjustmentContrast)}},
             "adjustmentSaturation": {{FormatFloat(_presetAdjustmentSaturation)}}
           }

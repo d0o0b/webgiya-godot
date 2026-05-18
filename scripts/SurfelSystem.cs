@@ -161,6 +161,7 @@ public partial class Main : Node3D
         }
 
         var range = EstimateSurfelLightRange(samples);
+        var lightRange = range * 2.4f;
         var center = EstimateSurfelCenter(samples);
         var energyBase = _surfelLightEnergy * Mathf.Max(0.0f, _indirectIntensity) / Mathf.Sqrt(Mathf.Max(1.0f, selected.Count));
         for (var i = 0; i < selected.Count; i++)
@@ -168,22 +169,27 @@ public partial class Main : Node3D
             var sample = selected[i];
             var colorfulness = Colorfulness(sample.Color);
             var normal = sample.Normal.LengthSquared() > 0.001f ? sample.Normal.Normalized() : (center - sample.Position).Normalized();
+            if ((center - sample.Position).LengthSquared() > 0.001f && normal.Dot((center - sample.Position).Normalized()) < 0.0f)
+            {
+                normal = -normal;
+            }
+
             var light = new OmniLight3D
             {
                 Name = $"SurfelLight{i + 1:00}",
-                Position = sample.Position + normal * Mathf.Min(0.18f, range * 0.08f),
+                Position = sample.Position + normal * Mathf.Clamp(lightRange * 0.22f, 0.35f, 1.4f),
                 LightColor = sample.Color,
-                LightEnergy = energyBase * Mathf.Lerp(0.85f, 1.55f, Mathf.Clamp(colorfulness, 0.0f, 1.0f)),
+                LightEnergy = energyBase * Mathf.Lerp(0.55f, 1.15f, Mathf.Clamp(colorfulness, 0.0f, 1.0f)),
                 LightSpecular = 0.0f,
                 ShadowEnabled = false,
-                OmniRange = range,
-                OmniAttenuation = 0.8f,
+                OmniRange = lightRange,
+                OmniAttenuation = 0.28f,
             };
             _surfelLightRoot.AddChild(light);
         }
 
         _surfelLightRoot.Visible = true;
-        GD.Print($"Built surfel lights: {selected.Count} lights, range {range:0.00}, energy {energyBase:0.000}");
+        GD.Print($"Built surfel lights: {selected.Count} lights, range {lightRange:0.00}, energy {energyBase:0.000}");
     }
 
     private void ClearSurfelLights()

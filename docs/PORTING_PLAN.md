@@ -33,32 +33,35 @@ The first Godot slice establishes the verification loop and visual baseline:
 - Surfel preview now defaults to reference-style visible sampling: dense surface candidates are projected into 8x8 camera tiles, the nearest visible candidate per tile is retained, and the old whole-scene area sampler remains available as `--surfel-sampling=geometry`.
 - Imported surfel preview colors now sample albedo textures by UV, with scene transport albedo boost applied where the reference defines it.
 - Screenshot runs can export structured surfel records as JSON sidecars with position, normal, camera-relative radius, albedo, bounds, and camera metadata for later RenderingDevice/compositor integration.
-- Optional low-count surfel-derived colored OmniLight field for bounced color bleeding experiments in combined and indirect modes.
+- Surfel-derived colored OmniLight field is the active GI approximation in combined and indirect modes.
 - Built-in image comparison command with JSON metrics and visual diff output.
 - Browser-based reference screenshot helper for the original Vite/WebGPU project.
 - Reference helper warns when headless browser capture returns the loading overlay instead of a completed WebGPU frame.
-- Direct, indirect, and combined output modes approximated with Godot SDFGI, SSIL, ambient, and directional light controls.
+- Direct, indirect, and combined output modes approximated with surfel-derived lights, ambient, SSAO, and directional light controls.
 - Forward+ is now the accepted desktop target renderer for this port instead of a custom WebGPU-equivalent surfel GI pipeline.
-- Render quality presets configure viewport antialiasing/debanding, per-scene shadow distance/bias, SDFGI bounce feedback, SSAO, and SSIL.
-- Screenshot runs can export render metadata sidecars with camera, light, shadow, quality, SDFGI, SSAO, and SSIL settings.
+- Render quality presets configure viewport antialiasing/debanding, per-scene shadow distance/bias, SSAO, surfel lights, and color adjustment.
+- Screenshot runs can export render metadata sidecars with camera, light, shadow, quality, surfel GI, and SSAO settings.
 - Visual matrix runner captures the prioritized Cornell/Sponza/model scenes across direct, indirect, and combined output, then compares against valid reference screenshots when available.
-- Per-preset Forward+ tuning now covers exposure, sky contribution, SDFGI sky reads, SDFGI feedback, SSAO/SSIL radius, and color adjustment so scene-specific fixes do not regress every preset.
+- Per-preset Forward+ tuning now covers exposure, sky contribution, SSAO radius, surfel light intensity, and color adjustment so scene-specific fixes do not regress every preset.
 - Runtime light controls for azimuth, elevation, intensity, auto-animation, and animation speed.
 - Runtime surfel preview controls for visibility, size, and sample budget.
 - Runtime surfel light controls for enable, count, and energy.
-- Forward+ lighting with high-resolution directional shadows, SDFGI, SSIL, SSAO, glow, and HDR sky fallback.
+- Camera-driven reference-visible surfel sampling is rebuilt after orbit, pan, look, zoom, or fly movement settles.
+- SDFGI and SSIL are disabled so surfel-derived lights are the only indirect GI approximation.
+- Surfel light defaults now favor a smoother 64-light field with broad range and low energy to avoid visible point-light spots.
+- Forward+ lighting with high-resolution directional shadows, surfel-derived GI lights, SSAO, glow, and HDR sky fallback.
 
 ## Work Remaining For 1:1 Rendering
 
 Godot does not expose the same WebGPU compute render graph through normal scene rendering. A close port should be staged:
 
-1. Keep the current Godot scene/preset/screenshot harness as the quality gate.
-2. Validate all asset imports and fix scale/material differences per preset.
-3. Tune Forward+ presets against stable reference screenshots instead of porting the WebGPU compute pipeline.
-4. Audit imported material differences per asset: normal maps, alpha, roughness, metallic, and color-space differences.
-5. Match the reference direct, indirect, combined, and debug overlay intent within Godot's Forward+ constraints.
-6. Use the reference capture helper and built-in compare command to tune each scene/camera preset.
-7. Replace the current invalid headless reference screenshots with captures from a normal WebGPU-capable browser session; the local headless path currently returns the reference app error overlay.
+1. Replace the invalid headless reference screenshots with captures from a normal WebGPU-capable browser session; the local headless path currently returns the reference app error overlay.
+2. Tune Forward+ presets against stable reference screenshots instead of porting the WebGPU compute pipeline.
+3. Audit imported material differences per asset: normal maps, alpha, roughness, metallic, texture filtering, and color-space differences.
+4. Improve indirect mode semantics inside Godot's Forward+ constraints. It is currently scene rendering under surfel/ambient lighting, not a separate fullscreen indirect-light texture like the reference.
+5. Reduce remaining surfel-GI approximation limits: no temporal surfel aging/history, no BVH ray integration, no radial-depth occlusion cache, and only 64 point lights for bounced color.
+6. Validate all asset imports and fix scale/material differences per preset as stable reference images become available.
+7. Keep the current Godot scene/preset/screenshot harness and visual matrix as the quality gate.
 
 ## Acceptance Targets
 

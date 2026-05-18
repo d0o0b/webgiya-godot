@@ -54,15 +54,11 @@ public partial class Main : Node3D
         public float IndirectEnergy { get; init; } = 1.0f;
         public float AmbientEnergy { get; init; } = 0.55f;
         public float OcclusionShadowStrength { get; init; } = 0.8f;
-        public float BleedReduction { get; init; } = 0.1f;
         public float AlbedoBoost { get; init; } = 1.0f;
         public float ShadowMaxDistance { get; init; } = 60.0f;
         public float ShadowBias { get; init; } = 0.02f;
         public float ShadowNormalBias { get; init; } = 1.0f;
-        public float SdfgiBounceFeedback { get; init; } = 0.65f;
-        public bool SdfgiReadSkyLight { get; init; } = true;
         public float SsaoRadius { get; init; } = 2.0f;
-        public float SsilRadius { get; init; } = 5.0f;
         public float TonemapExposure { get; init; } = 0.85f;
         public float AmbientSkyContribution { get; init; } = 1.0f;
         public float AdjustmentContrast { get; init; } = 1.02f;
@@ -191,10 +187,7 @@ public partial class Main : Node3D
             AmbientEnergy = 0.55f,
             OcclusionShadowStrength = 0.5f,
             ShadowMaxDistance = 24.0f,
-            SdfgiBounceFeedback = 0.62f,
-            SdfgiReadSkyLight = true,
             SsaoRadius = 1.3f,
-            SsilRadius = 3.0f,
             TonemapExposure = 0.78f,
             AmbientSkyContribution = 0.75f,
             AdjustmentContrast = 1.0f,
@@ -219,7 +212,6 @@ public partial class Main : Node3D
             CameraPosition = new Vector3(13, 3, 0),
             CameraTarget = new Vector3(0, 2, 0),
             OcclusionShadowStrength = 1.2f,
-            BleedReduction = 0.1f,
             ShadowMaxDistance = 42.0f,
         },
         new ScenePreset
@@ -231,10 +223,8 @@ public partial class Main : Node3D
             CameraPosition = new Vector3(0, -0.3f, 3),
             CameraTarget = Vector3.Zero,
             OcclusionShadowStrength = 0.5f,
-            BleedReduction = 0.1f,
             ShadowMaxDistance = 18.0f,
             SsaoRadius = 1.2f,
-            SsilRadius = 2.5f,
         },
         new ScenePreset
         {
@@ -250,14 +240,11 @@ public partial class Main : Node3D
             IndirectEnergy = 1.7f,
             AmbientEnergy = 0.85f,
             OcclusionShadowStrength = 0.6f,
-            BleedReduction = 0.25f,
             AlbedoBoost = 1.2f,
             ShadowMaxDistance = 110.0f,
             ShadowBias = 0.012f,
             ShadowNormalBias = 0.65f,
-            SdfgiBounceFeedback = 0.82f,
             SsaoRadius = 2.4f,
-            SsilRadius = 7.5f,
             TonemapExposure = 0.95f,
             AdjustmentContrast = 0.9f,
             AdjustmentSaturation = 0.95f,
@@ -276,14 +263,11 @@ public partial class Main : Node3D
             IndirectEnergy = 1.4f,
             AmbientEnergy = 0.85f,
             OcclusionShadowStrength = 0.6f,
-            BleedReduction = 0.25f,
             AlbedoBoost = 1.2f,
             ShadowMaxDistance = 120.0f,
             ShadowBias = 0.012f,
             ShadowNormalBias = 0.65f,
-            SdfgiBounceFeedback = 0.82f,
             SsaoRadius = 2.4f,
-            SsilRadius = 7.5f,
             TonemapExposure = 0.95f,
             AdjustmentContrast = 0.9f,
             AdjustmentSaturation = 0.95f,
@@ -332,15 +316,11 @@ public partial class Main : Node3D
     private float _presetAmbientEnergy = 0.55f;
     private float _presetIndirectEnergy = 1.0f;
     private float _presetOcclusionShadowStrength = 0.8f;
-    private float _presetBleedReduction = 0.1f;
     private float _presetAlbedoBoost = 1.0f;
     private float _presetShadowMaxDistance = 60.0f;
     private float _presetShadowBias = 0.02f;
     private float _presetShadowNormalBias = 1.0f;
-    private float _presetSdfgiBounceFeedback = 0.65f;
-    private bool _presetSdfgiReadSkyLight = true;
     private float _presetSsaoRadius = 2.0f;
-    private float _presetSsilRadius = 5.0f;
     private float _presetTonemapExposure = 0.85f;
     private float _presetAmbientSkyContribution = 1.0f;
     private float _presetAdjustmentContrast = 1.02f;
@@ -357,9 +337,9 @@ public partial class Main : Node3D
     private bool _hideUiDuringScreenshots;
     private float _surfelPreviewSize = 0.035f;
     private int _surfelPreviewBudget = 8192;
-    private int _surfelLightCount = 24;
+    private int _surfelLightCount = 64;
     private int _surfelExportLimit = 8192;
-    private float _surfelLightEnergy = 0.16f;
+    private float _surfelLightEnergy = 0.08f;
     private bool _cameraDrivenSurfelsDirty;
     private float _cameraDrivenSurfelsDirtyElapsed;
     private const float CameraDrivenSurfelRebuildDelaySeconds = 0.12f;
