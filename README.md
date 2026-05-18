@@ -22,7 +22,7 @@ Extra verification options:
 godot --path . --scene res://scenes/Main.tscn -- --screenshots --screenshot-scenes=cornell-box,sponza --screenshot-modes=direct,indirect,combined --screenshot-views=default,left,right,high --screenshot-delay=0.5
 ```
 
-Use `--screenshot-hide-ui` when capturing images for diff comparison. Use `--surfel-debug` to render the GPU-instanced surfel preview.
+Use `--screenshot-hide-ui` when capturing images for diff comparison. Use `--surfel-debug` to render the GPU-instanced surfel preview. The debug surfel overlay samples visible hand-built box faces and imported mesh triangles by surface area.
 
 Surfel lighting options:
 

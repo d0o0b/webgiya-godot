@@ -9,6 +9,15 @@ using System.Threading.Tasks;
 
 public partial class Main : Node3D
 {
+    private const string SurfelFaceMaskMeta = "surfel_face_mask";
+    private const int FaceNegX = 1 << 0;
+    private const int FacePosX = 1 << 1;
+    private const int FaceNegY = 1 << 2;
+    private const int FacePosY = 1 << 3;
+    private const int FaceNegZ = 1 << 4;
+    private const int FacePosZ = 1 << 5;
+    private const int AllBoxFaces = FaceNegX | FacePosX | FaceNegY | FacePosY | FaceNegZ | FacePosZ;
+
     private enum GiOutputMode
     {
         Direct,
@@ -43,6 +52,24 @@ public partial class Main : Node3D
         public Vector3 Position { get; }
         public Vector3 Normal { get; }
         public Color Color { get; }
+    }
+
+    private readonly struct TriangleSurfaceSample
+    {
+        public TriangleSurfaceSample(Vector3 a, Vector3 b, Vector3 c, Vector3 normal, float area)
+        {
+            A = a;
+            B = b;
+            C = c;
+            Normal = normal;
+            Area = area;
+        }
+
+        public Vector3 A { get; }
+        public Vector3 B { get; }
+        public Vector3 C { get; }
+        public Vector3 Normal { get; }
+        public float Area { get; }
     }
 
     private readonly List<ScenePreset> _presets = new()
@@ -113,6 +140,7 @@ public partial class Main : Node3D
         },
     };
 
+    private readonly Dictionary<string, Color> _textureAverageColorCache = new(StringComparer.Ordinal);
     private Camera3D _camera = null!;
     private DirectionalLight3D _sun = null!;
     private WorldEnvironment _worldEnvironment = null!;
@@ -316,11 +344,17 @@ public partial class Main : Node3D
         _worldEnvironment = new WorldEnvironment { Name = "WorldEnvironment" };
         AddChild(_worldEnvironment);
 
+        var surfelMaterial = new StandardMaterial3D
+        {
+            VertexColorUseAsAlbedo = true,
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+        };
         _surfelPreview = new MultiMeshInstance3D
         {
             Name = "SurfelPreview",
             Visible = false,
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+            MaterialOverride = surfelMaterial,
         };
         AddChild(_surfelPreview);
 
@@ -734,19 +768,19 @@ public partial class Main : Node3D
         var red = MakeMaterial(new Color(1, 0, 0), 0.9f);
         var green = MakeMaterial(new Color(0, 1, 0), 0.9f);
 
-        AddBox(group, "Floor", new Vector3(boxWidth + wall * 2, wall, boxDepth + wall), new Vector3(0, -wall * 0.5f, -wall * 0.5f), Vector3.Zero, white);
-        AddBox(group, "LeftWall", new Vector3(wall, boxHeight, boxDepth), new Vector3(-boxWidth * 0.5f - wall * 0.5f, boxHeight * 0.5f, 0), Vector3.Zero, red);
-        AddBox(group, "RightWall", new Vector3(wall, boxHeight, boxDepth), new Vector3(boxWidth * 0.5f + wall * 0.5f, boxHeight * 0.5f, 0), Vector3.Zero, green);
-        AddBox(group, "BackWall", new Vector3(boxWidth + wall * 2, boxHeight, wall), new Vector3(0, boxHeight * 0.5f, -boxDepth * 0.5f - wall * 0.5f), Vector3.Zero, white);
+        AddBox(group, "Floor", new Vector3(boxWidth + wall * 2, wall, boxDepth + wall), new Vector3(0, -wall * 0.5f, -wall * 0.5f), Vector3.Zero, white, FacePosY);
+        AddBox(group, "LeftWall", new Vector3(wall, boxHeight, boxDepth), new Vector3(-boxWidth * 0.5f - wall * 0.5f, boxHeight * 0.5f, 0), Vector3.Zero, red, FacePosX);
+        AddBox(group, "RightWall", new Vector3(wall, boxHeight, boxDepth), new Vector3(boxWidth * 0.5f + wall * 0.5f, boxHeight * 0.5f, 0), Vector3.Zero, green, FaceNegX);
+        AddBox(group, "BackWall", new Vector3(boxWidth + wall * 2, boxHeight, wall), new Vector3(0, boxHeight * 0.5f, -boxDepth * 0.5f - wall * 0.5f), Vector3.Zero, white, FacePosZ);
 
         var panelWidth = 0.75f + wall;
         var panelDepth = boxDepth + wall;
         var ceilingY = boxHeight + wall * 0.5f;
         var ceilingX = boxWidth * 0.5f - panelWidth * 0.5f + wall;
-        AddBox(group, "CeilingLeft", new Vector3(panelWidth, wall, panelDepth), new Vector3(-ceilingX, ceilingY, -0.5f * wall), Vector3.Zero, white);
-        AddBox(group, "CeilingRight", new Vector3(panelWidth, wall, panelDepth), new Vector3(ceilingX, ceilingY, -0.5f * wall), Vector3.Zero, white);
-        AddBox(group, "TallBox", new Vector3(0.5f, 0.7f, 0.5f), new Vector3(-0.3f, 0.35f, -0.2f), new Vector3(0, Mathf.Pi * 0.25f, 0), white);
-        AddBox(group, "ShortBox", new Vector3(0.4f, 0.4f, 0.4f), new Vector3(0.4f, 0.2f, 0.4f), new Vector3(0, Mathf.Pi * -0.1f, 0), white);
+        AddBox(group, "CeilingLeft", new Vector3(panelWidth, wall, panelDepth), new Vector3(-ceilingX, ceilingY, -0.5f * wall), Vector3.Zero, white, FaceNegY);
+        AddBox(group, "CeilingRight", new Vector3(panelWidth, wall, panelDepth), new Vector3(ceilingX, ceilingY, -0.5f * wall), Vector3.Zero, white, FaceNegY);
+        AddBox(group, "TallBox", new Vector3(0.5f, 0.7f, 0.5f), new Vector3(-0.3f, 0.35f, -0.2f), new Vector3(0, Mathf.Pi * 0.25f, 0), white, AllBoxFaces & ~FaceNegY);
+        AddBox(group, "ShortBox", new Vector3(0.4f, 0.4f, 0.4f), new Vector3(0.4f, 0.2f, 0.4f), new Vector3(0, Mathf.Pi * -0.1f, 0), white, AllBoxFaces & ~FaceNegY);
     }
 
     private void BuildMarbleBustScene()
@@ -759,8 +793,8 @@ public partial class Main : Node3D
         var blue = MakeMaterial(new Color(0, 0, 1), 0.9f);
         const float wall = 0.02f;
 
-        AddBox(group, "Floor", new Vector3(1.0f + wall * 2, wall, 1.0f + wall), new Vector3(0, -wall * 0.5f, 0), Vector3.Zero, white);
-        AddBox(group, "Back", new Vector3(1.0f + wall * 2, wall, 1.0f / 1.5f), new Vector3(0, 0.33f, -0.5f), new Vector3(Mathf.Pi / 2.0f, 0, 0), white);
+        AddBox(group, "Floor", new Vector3(1.0f + wall * 2, wall, 1.0f + wall), new Vector3(0, -wall * 0.5f, 0), Vector3.Zero, white, FacePosY);
+        AddBox(group, "Back", new Vector3(1.0f + wall * 2, wall, 1.0f / 1.5f), new Vector3(0, 0.33f, -0.5f), new Vector3(Mathf.Pi / 2.0f, 0, 0), white, FacePosY);
         AddBox(group, "RedReflector", new Vector3(0.3f, wall, 0.3f), new Vector3(-0.2f, 0.4f, 0), new Vector3(Mathf.Pi / 2.0f, 0, -Mathf.Pi / 4.0f), red);
         AddBox(group, "BlueReflector", new Vector3(0.3f, wall, 0.3f), new Vector3(0.2f, 0.4f, 0), new Vector3(Mathf.Pi / 2.0f, 0, Mathf.Pi / 4.0f), blue);
 
@@ -783,7 +817,7 @@ public partial class Main : Node3D
         return null;
     }
 
-    private MeshInstance3D AddBox(Node3D parent, string name, Vector3 size, Vector3 position, Vector3 rotation, Material material)
+    private MeshInstance3D AddBox(Node3D parent, string name, Vector3 size, Vector3 position, Vector3 rotation, Material material, int surfelFaceMask = AllBoxFaces)
     {
         var mesh = new MeshInstance3D
         {
@@ -794,6 +828,7 @@ public partial class Main : Node3D
             MaterialOverride = material,
             CastShadow = GeometryInstance3D.ShadowCastingSetting.On,
         };
+        mesh.SetMeta(SurfelFaceMaskMeta, surfelFaceMask);
         mesh.Set("gi_mode", 1);
         parent.AddChild(mesh);
         return mesh;
@@ -1124,7 +1159,7 @@ public partial class Main : Node3D
             return;
         }
 
-        var perSurfaceTarget = Mathf.Max(8, perMeshTarget / Math.Max(1, surfaceCount));
+        var perSurfaceTarget = Mathf.Max(16, perMeshTarget / Math.Max(1, surfaceCount));
         for (var surface = 0; surface < surfaceCount && samples.Count < budget; surface++)
         {
             var arrays = mesh.SurfaceGetArrays(surface);
@@ -1140,65 +1175,198 @@ public partial class Main : Node3D
             }
 
             var color = GetMeshSurfaceColor(meshInstance, surface);
-            var normals = arrays.Count > (int)Mesh.ArrayType.Normal
-                ? arrays[(int)Mesh.ArrayType.Normal].AsVector3Array()
-                : Array.Empty<Vector3>();
-            var stride = Mathf.Max(1, vertices.Length / perSurfaceTarget);
+            var indices = arrays.Count > (int)Mesh.ArrayType.Index
+                ? arrays[(int)Mesh.ArrayType.Index].AsInt32Array()
+                : Array.Empty<int>();
             var transform = meshInstance.GlobalTransform;
-
-            for (var i = 0; i < vertices.Length && samples.Count < budget; i += stride)
+            var triangles = BuildTriangleSamples(vertices, indices, transform);
+            if (triangles.Count == 0)
             {
-                var normal = normals.Length > i
-                    ? (transform.Basis * normals[i]).Normalized()
-                    : Vector3.Up;
-                samples.Add(new SurfelSample(transform * vertices[i], normal, color));
+                continue;
             }
+
+            var totalArea = triangles.Sum(triangle => triangle.Area);
+            if (totalArea <= 0.0f)
+            {
+                continue;
+            }
+
+            AddTriangleAreaSamples(triangles, color, totalArea, perSurfaceTarget, samples, budget);
         }
     }
 
     private void CollectBoxSurfelSamples(MeshInstance3D meshInstance, BoxMesh box, List<SurfelSample> samples, int budget, int perMeshTarget)
     {
-        var grid = Mathf.Clamp(Mathf.RoundToInt(Mathf.Sqrt(perMeshTarget / 6.0f)), 2, 24);
         var half = box.Size * 0.5f;
         var transform = meshInstance.GlobalTransform;
         var color = GetMeshSurfaceColor(meshInstance, 0);
-
-        for (var face = 0; face < 6 && samples.Count < budget; face++)
+        var faceMask = meshInstance.HasMeta(SurfelFaceMaskMeta)
+            ? (int)meshInstance.GetMeta(SurfelFaceMaskMeta).AsInt32()
+            : AllBoxFaces;
+        var faces = BuildBoxFaces(box.Size, faceMask);
+        var totalArea = faces.Sum(face => face.Area);
+        if (totalArea <= 0.0f)
         {
-            for (var y = 0; y < grid && samples.Count < budget; y++)
+            return;
+        }
+
+        foreach (var face in faces)
+        {
+            if (samples.Count >= budget)
             {
-                var v = grid == 1 ? 0.5f : y / (grid - 1.0f);
-                for (var x = 0; x < grid && samples.Count < budget; x++)
-                {
-                    var u = grid == 1 ? 0.5f : x / (grid - 1.0f);
-                    var px = Mathf.Lerp(-half.X, half.X, u);
-                    var py = Mathf.Lerp(-half.Y, half.Y, v);
-                    var pz = Mathf.Lerp(-half.Z, half.Z, u);
-                    var qz = Mathf.Lerp(-half.Z, half.Z, v);
+                return;
+            }
 
-                    var local = face switch
-                    {
-                        0 => new Vector3(-half.X, py, qz),
-                        1 => new Vector3(half.X, py, qz),
-                        2 => new Vector3(px, -half.Y, qz),
-                        3 => new Vector3(px, half.Y, qz),
-                        4 => new Vector3(px, py, -half.Z),
-                        _ => new Vector3(px, py, half.Z),
-                    };
-                    var localNormal = face switch
-                    {
-                        0 => new Vector3(-1, 0, 0),
-                        1 => new Vector3(1, 0, 0),
-                        2 => new Vector3(0, -1, 0),
-                        3 => new Vector3(0, 1, 0),
-                        4 => new Vector3(0, 0, -1),
-                        _ => new Vector3(0, 0, 1),
-                    };
+            var faceTarget = Mathf.Max(1, Mathf.RoundToInt(perMeshTarget * face.Area / totalArea));
+            AddBoxFaceSamples(face, half, transform, color, faceTarget, samples, budget);
+        }
+    }
 
-                    samples.Add(new SurfelSample(transform * local, (transform.Basis * localNormal).Normalized(), color));
-                }
+    private readonly struct BoxFace
+    {
+        public BoxFace(int index, Vector3 normal, float width, float height, float area)
+        {
+            Index = index;
+            Normal = normal;
+            Width = width;
+            Height = height;
+            Area = area;
+        }
+
+        public int Index { get; }
+        public Vector3 Normal { get; }
+        public float Width { get; }
+        public float Height { get; }
+        public float Area { get; }
+    }
+
+    private static List<BoxFace> BuildBoxFaces(Vector3 size, int faceMask)
+    {
+        var faces = new List<BoxFace>(6);
+        AddBoxFace(faces, faceMask, 0, FaceNegX, new Vector3(-1, 0, 0), size.Z, size.Y);
+        AddBoxFace(faces, faceMask, 1, FacePosX, new Vector3(1, 0, 0), size.Z, size.Y);
+        AddBoxFace(faces, faceMask, 2, FaceNegY, new Vector3(0, -1, 0), size.X, size.Z);
+        AddBoxFace(faces, faceMask, 3, FacePosY, new Vector3(0, 1, 0), size.X, size.Z);
+        AddBoxFace(faces, faceMask, 4, FaceNegZ, new Vector3(0, 0, -1), size.X, size.Y);
+        AddBoxFace(faces, faceMask, 5, FacePosZ, new Vector3(0, 0, 1), size.X, size.Y);
+        return faces;
+    }
+
+    private static void AddBoxFace(List<BoxFace> faces, int faceMask, int index, int bit, Vector3 normal, float width, float height)
+    {
+        if ((faceMask & bit) == 0)
+        {
+            return;
+        }
+
+        faces.Add(new BoxFace(index, normal, Mathf.Max(0.0001f, width), Mathf.Max(0.0001f, height), Mathf.Max(0.0001f, width * height)));
+    }
+
+    private static void AddBoxFaceSamples(BoxFace face, Vector3 half, Transform3D transform, Color color, int target, List<SurfelSample> samples, int budget)
+    {
+        var aspect = Mathf.Max(0.001f, face.Width / face.Height);
+        var columns = Mathf.Max(1, Mathf.RoundToInt(Mathf.Sqrt(target * aspect)));
+        var rows = Mathf.Max(1, Mathf.CeilToInt(target / (float)columns));
+        var normal = (transform.Basis * face.Normal).Normalized();
+
+        for (var y = 0; y < rows && samples.Count < budget; y++)
+        {
+            var v = (y + 0.5f) / rows;
+            for (var x = 0; x < columns && samples.Count < budget; x++)
+            {
+                var u = (x + 0.5f) / columns;
+                var local = GetBoxFaceLocalPoint(face.Index, half, u, v);
+                samples.Add(new SurfelSample(transform * local, normal, color));
             }
         }
+    }
+
+    private static Vector3 GetBoxFaceLocalPoint(int face, Vector3 half, float u, float v)
+    {
+        var px = Mathf.Lerp(-half.X, half.X, u);
+        var py = Mathf.Lerp(-half.Y, half.Y, v);
+        var pz = Mathf.Lerp(-half.Z, half.Z, u);
+        var qz = Mathf.Lerp(-half.Z, half.Z, v);
+
+        return face switch
+        {
+            0 => new Vector3(-half.X, py, qz),
+            1 => new Vector3(half.X, py, qz),
+            2 => new Vector3(px, -half.Y, qz),
+            3 => new Vector3(px, half.Y, qz),
+            4 => new Vector3(px, py, -half.Z),
+            _ => new Vector3(px, py, half.Z),
+        };
+    }
+
+    private static List<TriangleSurfaceSample> BuildTriangleSamples(Vector3[] vertices, int[] indices, Transform3D transform)
+    {
+        var triangleCount = indices.Length >= 3 ? indices.Length / 3 : vertices.Length / 3;
+        var triangles = new List<TriangleSurfaceSample>(triangleCount);
+        for (var triangle = 0; triangle < triangleCount; triangle++)
+        {
+            var i0 = indices.Length >= 3 ? indices[triangle * 3] : triangle * 3;
+            var i1 = indices.Length >= 3 ? indices[triangle * 3 + 1] : triangle * 3 + 1;
+            var i2 = indices.Length >= 3 ? indices[triangle * 3 + 2] : triangle * 3 + 2;
+            if (i0 < 0 || i1 < 0 || i2 < 0 || i0 >= vertices.Length || i1 >= vertices.Length || i2 >= vertices.Length)
+            {
+                continue;
+            }
+
+            var a = transform * vertices[i0];
+            var b = transform * vertices[i1];
+            var c = transform * vertices[i2];
+            var cross = (b - a).Cross(c - a);
+            var area = cross.Length() * 0.5f;
+            if (area <= 0.000001f)
+            {
+                continue;
+            }
+
+            triangles.Add(new TriangleSurfaceSample(a, b, c, cross.Normalized(), area));
+        }
+
+        return triangles;
+    }
+
+    private static void AddTriangleAreaSamples(List<TriangleSurfaceSample> triangles, Color color, float totalArea, int target, List<SurfelSample> samples, int budget)
+    {
+        target = Mathf.Max(1, target);
+        var triangleIndex = 0;
+        var cumulative = triangles[0].Area;
+        for (var sampleIndex = 0; sampleIndex < target && samples.Count < budget; sampleIndex++)
+        {
+            var areaPoint = (sampleIndex + 0.5f) * totalArea / target;
+            while (triangleIndex < triangles.Count - 1 && cumulative < areaPoint)
+            {
+                triangleIndex++;
+                cumulative += triangles[triangleIndex].Area;
+            }
+
+            var triangle = triangles[triangleIndex];
+            var u = RadicalInverse(sampleIndex + 1, 2);
+            var v = RadicalInverse(sampleIndex + 1, 3);
+            var sqrtU = Mathf.Sqrt(u);
+            var b0 = 1.0f - sqrtU;
+            var b1 = sqrtU * (1.0f - v);
+            var b2 = sqrtU * v;
+            var position = triangle.A * b0 + triangle.B * b1 + triangle.C * b2;
+            samples.Add(new SurfelSample(position, triangle.Normal, color));
+        }
+    }
+
+    private static float RadicalInverse(int index, int radix)
+    {
+        var factor = 1.0f / radix;
+        var result = 0.0f;
+        while (index > 0)
+        {
+            result += factor * (index % radix);
+            index /= radix;
+            factor /= radix;
+        }
+
+        return result;
     }
 
     private int CountMeshInstances(Node node)
@@ -1212,7 +1380,7 @@ public partial class Main : Node3D
         return count;
     }
 
-    private static Color GetMeshSurfaceColor(MeshInstance3D meshInstance, int surface)
+    private Color GetMeshSurfaceColor(MeshInstance3D meshInstance, int surface)
     {
         var material =
             meshInstance.MaterialOverride ??
@@ -1221,12 +1389,59 @@ public partial class Main : Node3D
 
         if (material is StandardMaterial3D standard)
         {
-            var color = standard.AlbedoColor;
+            var color = standard.AlbedoColor * GetTextureAverageColor(standard.AlbedoTexture);
             color.A = 1.0f;
             return color;
         }
 
         return new Color(0.55f, 0.78f, 1.0f, 1.0f);
+    }
+
+    private Color GetTextureAverageColor(Texture2D? texture)
+    {
+        if (texture == null)
+        {
+            return Colors.White;
+        }
+
+        var cacheKey = string.IsNullOrWhiteSpace(texture.ResourcePath)
+            ? texture.GetInstanceId().ToString(CultureInfo.InvariantCulture)
+            : texture.ResourcePath;
+        if (_textureAverageColorCache.TryGetValue(cacheKey, out var cached))
+        {
+            return cached;
+        }
+
+        var image = texture.GetImage();
+        if (image == null || image.GetWidth() <= 0 || image.GetHeight() <= 0)
+        {
+            _textureAverageColorCache[cacheKey] = Colors.White;
+            return Colors.White;
+        }
+
+        image.Convert(Image.Format.Rgba8);
+        var width = image.GetWidth();
+        var height = image.GetHeight();
+        var samples = 0;
+        var color = Vector3.Zero;
+        const int grid = 8;
+        for (var y = 0; y < grid; y++)
+        {
+            var py = Mathf.Clamp(Mathf.RoundToInt((y + 0.5f) * height / grid), 0, height - 1);
+            for (var x = 0; x < grid; x++)
+            {
+                var px = Mathf.Clamp(Mathf.RoundToInt((x + 0.5f) * width / grid), 0, width - 1);
+                var pixel = image.GetPixel(px, py);
+                color += new Vector3(pixel.R, pixel.G, pixel.B);
+                samples++;
+            }
+        }
+
+        var average = samples > 0
+            ? new Color(color.X / samples, color.Y / samples, color.Z / samples, 1.0f)
+            : Colors.White;
+        _textureAverageColorCache[cacheKey] = average;
+        return average;
     }
 
     private void SetOrbitFromCamera(Vector3 position, Vector3 target)
