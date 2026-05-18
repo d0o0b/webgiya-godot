@@ -14,7 +14,7 @@ godot --path .
 godot --headless --path . -- --screenshots --screenshot-scenes=cornell-box,marble-bust --screenshot-delay=2 --screenshot-dir=screenshots
 ```
 
-`--screenshot-delay` is clamped to 5 seconds.
+Automated screenshot sweeps wait at least 2 seconds after loading a preset or moving the camera, and `--screenshot-delay` is clamped to 5 seconds.
 
 Extra verification options:
 
@@ -22,7 +22,7 @@ Extra verification options:
 godot --path . --scene res://scenes/Main.tscn -- --screenshots --screenshot-scenes=cornell-box,sponza --screenshot-modes=direct,indirect,combined --screenshot-views=default,left,right,high --screenshot-delay=0.5
 ```
 
-Use `--screenshot-hide-ui` when capturing images for diff comparison. Use `--surfel-debug` to render the GPU-instanced surfel preview. The debug surfel overlay samples visible hand-built box faces and imported mesh triangles by surface area.
+Use `--screenshot-hide-ui` when capturing images for diff comparison. Use `--surfel-debug` to render the GPU-instanced surfel preview. The debug surfel overlay samples visible hand-built box faces and imported mesh triangles by surface area. Use `--surfel-size=<value>` and `--surfel-budget=<count>` for automated surfel debug captures.
 
 Surfel lighting options:
 

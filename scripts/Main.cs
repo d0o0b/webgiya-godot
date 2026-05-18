@@ -38,6 +38,9 @@ public partial class Main : Node3D
         public float LightElevationDeg { get; init; } = 50.0f;
         public float IndirectEnergy { get; init; } = 1.0f;
         public float AmbientEnergy { get; init; } = 0.55f;
+        public float OcclusionShadowStrength { get; init; } = 0.8f;
+        public float BleedReduction { get; init; } = 0.1f;
+        public float AlbedoBoost { get; init; } = 1.0f;
     }
 
     private readonly struct SurfelSample
@@ -56,12 +59,16 @@ public partial class Main : Node3D
 
     private readonly struct TriangleSurfaceSample
     {
-        public TriangleSurfaceSample(Vector3 a, Vector3 b, Vector3 c, Vector3 normal, float area)
+        public TriangleSurfaceSample(Vector3 a, Vector3 b, Vector3 c, Vector3 normal, Vector2 uvA, Vector2 uvB, Vector2 uvC, bool hasUv, float area)
         {
             A = a;
             B = b;
             C = c;
             Normal = normal;
+            UvA = uvA;
+            UvB = uvB;
+            UvC = uvC;
+            HasUv = hasUv;
             Area = area;
         }
 
@@ -69,7 +76,62 @@ public partial class Main : Node3D
         public Vector3 B { get; }
         public Vector3 C { get; }
         public Vector3 Normal { get; }
+        public Vector2 UvA { get; }
+        public Vector2 UvB { get; }
+        public Vector2 UvC { get; }
+        public bool HasUv { get; }
         public float Area { get; }
+    }
+
+    private sealed class SurfaceMaterialSampler
+    {
+        public SurfaceMaterialSampler(Color baseColor, Image? albedoImage, float albedoBoost)
+        {
+            BaseColor = baseColor;
+            AlbedoImage = albedoImage;
+            AlbedoBoost = albedoBoost;
+        }
+
+        private Color BaseColor { get; }
+        private Image? AlbedoImage { get; }
+        private float AlbedoBoost { get; }
+
+        public Color Sample(Vector2 uv)
+        {
+            var color = BaseColor;
+            if (AlbedoImage == null || AlbedoImage.GetWidth() <= 0 || AlbedoImage.GetHeight() <= 0)
+            {
+                color.A = 1.0f;
+                return color;
+            }
+
+            var x = Mathf.Clamp(Mathf.FloorToInt(Repeat(uv.X) * AlbedoImage.GetWidth()), 0, AlbedoImage.GetWidth() - 1);
+            var y = Mathf.Clamp(Mathf.FloorToInt(Repeat(uv.Y) * AlbedoImage.GetHeight()), 0, AlbedoImage.GetHeight() - 1);
+            var texel = AlbedoImage.GetPixel(x, y);
+            color *= texel;
+            color = ApplyAlbedoBoost(color, AlbedoBoost);
+            color.A = 1.0f;
+            return color;
+        }
+
+        private static Color ApplyAlbedoBoost(Color color, float boost)
+        {
+            if (Mathf.IsEqualApprox(boost, 1.0f))
+            {
+                return color;
+            }
+
+            boost = Mathf.Max(0.001f, boost);
+            color.R = 1.0f - Mathf.Pow(Mathf.Max(0.0f, 1.0f - color.R), boost);
+            color.G = 1.0f - Mathf.Pow(Mathf.Max(0.0f, 1.0f - color.G), boost);
+            color.B = 1.0f - Mathf.Pow(Mathf.Max(0.0f, 1.0f - color.B), boost);
+            return color;
+        }
+
+        private static float Repeat(float value)
+        {
+            return value - Mathf.Floor(value);
+        }
     }
 
     private readonly List<ScenePreset> _presets = new()
@@ -82,6 +144,7 @@ public partial class Main : Node3D
             HdrPath = "res://assets/exr/pizzo_pernice_puresky_2k.hdr",
             CameraPosition = new Vector3(0, 2.3f, 11),
             CameraTarget = new Vector3(0, 2.3f, 1),
+            OcclusionShadowStrength = 0.5f,
         },
         new ScenePreset
         {
@@ -91,6 +154,7 @@ public partial class Main : Node3D
             HdrPath = "res://assets/exr/hay_bales_1k.exr",
             CameraPosition = new Vector3(0, 3, 13),
             CameraTarget = new Vector3(0, 2, 0),
+            OcclusionShadowStrength = 0.8f,
         },
         new ScenePreset
         {
@@ -100,6 +164,8 @@ public partial class Main : Node3D
             HdrPath = "res://assets/exr/hay_bales_1k.exr",
             CameraPosition = new Vector3(13, 3, 0),
             CameraTarget = new Vector3(0, 2, 0),
+            OcclusionShadowStrength = 1.2f,
+            BleedReduction = 0.1f,
         },
         new ScenePreset
         {
@@ -109,6 +175,8 @@ public partial class Main : Node3D
             HdrPath = "res://assets/exr/kloppenheim_05_puresky_2k.hdr",
             CameraPosition = new Vector3(0, -0.3f, 3),
             CameraTarget = Vector3.Zero,
+            OcclusionShadowStrength = 0.5f,
+            BleedReduction = 0.1f,
         },
         new ScenePreset
         {
@@ -123,6 +191,9 @@ public partial class Main : Node3D
             LightElevationDeg = 47.4f,
             IndirectEnergy = 1.7f,
             AmbientEnergy = 0.85f,
+            OcclusionShadowStrength = 0.6f,
+            BleedReduction = 0.25f,
+            AlbedoBoost = 1.2f,
         },
         new ScenePreset
         {
@@ -137,10 +208,14 @@ public partial class Main : Node3D
             LightElevationDeg = 74.9f,
             IndirectEnergy = 1.4f,
             AmbientEnergy = 0.85f,
+            OcclusionShadowStrength = 0.6f,
+            BleedReduction = 0.25f,
+            AlbedoBoost = 1.2f,
         },
     };
 
     private readonly Dictionary<string, Color> _textureAverageColorCache = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Image> _textureImageCache = new(StringComparer.Ordinal);
     private Camera3D _camera = null!;
     private DirectionalLight3D _sun = null!;
     private WorldEnvironment _worldEnvironment = null!;
@@ -180,6 +255,9 @@ public partial class Main : Node3D
     private float _indirectIntensity = 1.0f;
     private float _presetAmbientEnergy = 0.55f;
     private float _presetIndirectEnergy = 1.0f;
+    private float _presetOcclusionShadowStrength = 0.8f;
+    private float _presetBleedReduction = 0.1f;
+    private float _presetAlbedoBoost = 1.0f;
     private GiOutputMode _giMode = GiOutputMode.Combined;
     private bool _syncingControls;
     private string _screenshotViewName = "default";
@@ -190,6 +268,7 @@ public partial class Main : Node3D
     private int _surfelPreviewBudget = 8192;
     private int _surfelLightCount = 24;
     private float _surfelLightEnergy = 0.16f;
+    private const float MinAutomatedScreenshotDelaySeconds = 2.0f;
     private const float MaxScreenshotDelaySeconds = 5.0f;
 
     public override void _Ready()
@@ -202,6 +281,8 @@ public partial class Main : Node3D
         _surfelLightsEnabled = ParseBool(args.GetValueOrDefault("surfel-lights"), false) && !args.ContainsKey("no-surfel-lights");
         _surfelLightCount = Mathf.Clamp(ParseInt(args.GetValueOrDefault("surfel-light-count"), _surfelLightCount), 0, 64);
         _surfelLightEnergy = Mathf.Clamp(ParseFloat(args.GetValueOrDefault("surfel-light-energy"), _surfelLightEnergy), 0.0f, 2.0f);
+        _surfelPreviewSize = Mathf.Clamp(ParseFloat(args.GetValueOrDefault("surfel-size"), _surfelPreviewSize), 0.002f, 0.25f);
+        _surfelPreviewBudget = Mathf.Clamp(ParseInt(args.GetValueOrDefault("surfel-budget"), _surfelPreviewBudget), 256, 65536);
         LoadPreset(0);
         if (args.ContainsKey("compare"))
         {
@@ -630,6 +711,9 @@ public partial class Main : Node3D
         _indirectIntensity = preset.IndirectEnergy;
         _presetAmbientEnergy = preset.AmbientEnergy;
         _presetIndirectEnergy = 1.0f;
+        _presetOcclusionShadowStrength = preset.OcclusionShadowStrength;
+        _presetBleedReduction = preset.BleedReduction;
+        _presetAlbedoBoost = preset.AlbedoBoost;
         _lightSpeed = 0.5f;
         _animateLight.ButtonPressed = false;
         _lightAnimationTime = 0.0f;
@@ -649,7 +733,7 @@ public partial class Main : Node3D
         _environment.Set("tonemap_white", 1.0f);
         _environment.Set("ssao_enabled", true);
         _environment.Set("ssao_radius", 2.0f);
-        _environment.Set("ssao_intensity", 1.6f);
+        _environment.Set("ssao_intensity", 0.9f + _presetOcclusionShadowStrength * 1.25f);
         _environment.Set("ssil_enabled", true);
         _environment.Set("ssil_radius", 5.0f);
         _environment.Set("sdfgi_enabled", true);
@@ -714,7 +798,8 @@ public partial class Main : Node3D
         _environment.Set("ambient_light_energy", Mathf.Max(0.02f, _presetAmbientEnergy * indirectScale));
         _environment.Set("sdfgi_enabled", indirectScale > 0.0f);
         _environment.Set("sdfgi_energy", _presetIndirectEnergy * indirectScale);
-        _environment.Set("ssil_intensity", _giMode == GiOutputMode.Direct ? 0.0f : indirectScale);
+        var bleedScale = Mathf.Lerp(1.15f, 0.72f, Mathf.Clamp(_presetBleedReduction, 0.0f, 1.0f));
+        _environment.Set("ssil_intensity", _giMode == GiOutputMode.Direct ? 0.0f : indirectScale * bleedScale);
         ApplySunEnergy();
         RebuildSurfelLights();
     }
@@ -1174,12 +1259,15 @@ public partial class Main : Node3D
                 continue;
             }
 
-            var color = GetMeshSurfaceColor(meshInstance, surface);
+            var materialSampler = GetSurfaceMaterialSampler(meshInstance, surface);
             var indices = arrays.Count > (int)Mesh.ArrayType.Index
                 ? arrays[(int)Mesh.ArrayType.Index].AsInt32Array()
                 : Array.Empty<int>();
+            var uvs = arrays.Count > (int)Mesh.ArrayType.TexUV
+                ? arrays[(int)Mesh.ArrayType.TexUV].AsVector2Array()
+                : Array.Empty<Vector2>();
             var transform = meshInstance.GlobalTransform;
-            var triangles = BuildTriangleSamples(vertices, indices, transform);
+            var triangles = BuildTriangleSamples(vertices, uvs, indices, transform);
             if (triangles.Count == 0)
             {
                 continue;
@@ -1191,7 +1279,7 @@ public partial class Main : Node3D
                 continue;
             }
 
-            AddTriangleAreaSamples(triangles, color, totalArea, perSurfaceTarget, samples, budget);
+            AddTriangleAreaSamples(triangles, materialSampler, totalArea, perSurfaceTarget, samples, budget);
         }
     }
 
@@ -1299,7 +1387,7 @@ public partial class Main : Node3D
         };
     }
 
-    private static List<TriangleSurfaceSample> BuildTriangleSamples(Vector3[] vertices, int[] indices, Transform3D transform)
+    private static List<TriangleSurfaceSample> BuildTriangleSamples(Vector3[] vertices, Vector2[] uvs, int[] indices, Transform3D transform)
     {
         var triangleCount = indices.Length >= 3 ? indices.Length / 3 : vertices.Length / 3;
         var triangles = new List<TriangleSurfaceSample>(triangleCount);
@@ -1316,6 +1404,10 @@ public partial class Main : Node3D
             var a = transform * vertices[i0];
             var b = transform * vertices[i1];
             var c = transform * vertices[i2];
+            var hasUv = uvs.Length > i0 && uvs.Length > i1 && uvs.Length > i2;
+            var uvA = hasUv ? uvs[i0] : Vector2.Zero;
+            var uvB = hasUv ? uvs[i1] : Vector2.Zero;
+            var uvC = hasUv ? uvs[i2] : Vector2.Zero;
             var cross = (b - a).Cross(c - a);
             var area = cross.Length() * 0.5f;
             if (area <= 0.000001f)
@@ -1323,13 +1415,13 @@ public partial class Main : Node3D
                 continue;
             }
 
-            triangles.Add(new TriangleSurfaceSample(a, b, c, cross.Normalized(), area));
+            triangles.Add(new TriangleSurfaceSample(a, b, c, cross.Normalized(), uvA, uvB, uvC, hasUv, area));
         }
 
         return triangles;
     }
 
-    private static void AddTriangleAreaSamples(List<TriangleSurfaceSample> triangles, Color color, float totalArea, int target, List<SurfelSample> samples, int budget)
+    private static void AddTriangleAreaSamples(List<TriangleSurfaceSample> triangles, SurfaceMaterialSampler materialSampler, float totalArea, int target, List<SurfelSample> samples, int budget)
     {
         target = Mathf.Max(1, target);
         var triangleIndex = 0;
@@ -1351,6 +1443,10 @@ public partial class Main : Node3D
             var b1 = sqrtU * (1.0f - v);
             var b2 = sqrtU * v;
             var position = triangle.A * b0 + triangle.B * b1 + triangle.C * b2;
+            var uv = triangle.HasUv
+                ? triangle.UvA * b0 + triangle.UvB * b1 + triangle.UvC * b2
+                : Vector2.Zero;
+            var color = materialSampler.Sample(uv);
             samples.Add(new SurfelSample(position, triangle.Normal, color));
         }
     }
@@ -1382,6 +1478,12 @@ public partial class Main : Node3D
 
     private Color GetMeshSurfaceColor(MeshInstance3D meshInstance, int surface)
     {
+        var sampler = GetSurfaceMaterialSampler(meshInstance, surface);
+        return sampler.Sample(Vector2.Zero);
+    }
+
+    private SurfaceMaterialSampler GetSurfaceMaterialSampler(MeshInstance3D meshInstance, int surface)
+    {
         var material =
             meshInstance.MaterialOverride ??
             meshInstance.GetSurfaceOverrideMaterial(surface) ??
@@ -1389,12 +1491,12 @@ public partial class Main : Node3D
 
         if (material is StandardMaterial3D standard)
         {
-            var color = standard.AlbedoColor * GetTextureAverageColor(standard.AlbedoTexture);
+            var color = standard.AlbedoColor;
             color.A = 1.0f;
-            return color;
+            return new SurfaceMaterialSampler(color, GetTextureImage(standard.AlbedoTexture), _presetAlbedoBoost);
         }
 
-        return new Color(0.55f, 0.78f, 1.0f, 1.0f);
+        return new SurfaceMaterialSampler(new Color(0.55f, 0.78f, 1.0f, 1.0f), null, _presetAlbedoBoost);
     }
 
     private Color GetTextureAverageColor(Texture2D? texture)
@@ -1412,7 +1514,7 @@ public partial class Main : Node3D
             return cached;
         }
 
-        var image = texture.GetImage();
+        var image = GetTextureImage(texture);
         if (image == null || image.GetWidth() <= 0 || image.GetHeight() <= 0)
         {
             _textureAverageColorCache[cacheKey] = Colors.White;
@@ -1442,6 +1544,32 @@ public partial class Main : Node3D
             : Colors.White;
         _textureAverageColorCache[cacheKey] = average;
         return average;
+    }
+
+    private Image? GetTextureImage(Texture2D? texture)
+    {
+        if (texture == null)
+        {
+            return null;
+        }
+
+        var cacheKey = string.IsNullOrWhiteSpace(texture.ResourcePath)
+            ? texture.GetInstanceId().ToString(CultureInfo.InvariantCulture)
+            : texture.ResourcePath;
+        if (_textureImageCache.TryGetValue(cacheKey, out var cached))
+        {
+            return cached;
+        }
+
+        var image = texture.GetImage();
+        if (image == null || image.GetWidth() <= 0 || image.GetHeight() <= 0)
+        {
+            return null;
+        }
+
+        image.Convert(Image.Format.Rgba8);
+        _textureImageCache[cacheKey] = image;
+        return image;
     }
 
     private void SetOrbitFromCamera(Vector3 position, Vector3 target)
@@ -1532,7 +1660,7 @@ public partial class Main : Node3D
     {
         var dir = args.TryGetValue("screenshot-dir", out var dirArg) ? dirArg : "screenshots";
         var delay = ParseFloat(args.GetValueOrDefault("screenshot-delay"), 1.0f);
-        delay = Mathf.Clamp(delay, 0.0f, MaxScreenshotDelaySeconds);
+        delay = ClampAutomatedScreenshotDelay(delay);
         _hideUiDuringScreenshots = args.ContainsKey("screenshot-hide-ui");
         var sceneIds = args.TryGetValue("screenshot-scenes", out var scenes)
             ? scenes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -1606,7 +1734,7 @@ public partial class Main : Node3D
 
     private async Task CaptureAllPresets(float delay, string directory)
     {
-        delay = Mathf.Clamp(delay, 0.0f, MaxScreenshotDelaySeconds);
+        delay = ClampAutomatedScreenshotDelay(delay);
         for (var i = 0; i < _presets.Count; i++)
         {
             LoadPreset(i);
@@ -1655,6 +1783,11 @@ public partial class Main : Node3D
         {
             _uiLayer.Visible = previousUiVisible;
         }
+    }
+
+    private static float ClampAutomatedScreenshotDelay(float delay)
+    {
+        return Mathf.Clamp(delay, MinAutomatedScreenshotDelaySeconds, MaxScreenshotDelaySeconds);
     }
 
     private static string MakeScreenshotDirectory(string directory)
