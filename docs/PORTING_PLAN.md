@@ -27,11 +27,14 @@ The first Godot slice establishes the verification loop and visual baseline:
 - Screenshot capture for current scene and all presets.
 - Headless multi-screenshot CLI with a maximum 5 second delay.
 - Screenshot sweeps across output modes and camera view variants.
+- UI-free screenshot option for image-diff captures.
+- GPU-instanced surfel preview/debug mode generated from scene mesh samples.
 - Built-in image comparison command with JSON metrics and visual diff output.
 - Browser-based reference screenshot helper for the original Vite/WebGPU project.
 - Reference helper warns when headless browser capture returns the loading overlay instead of a completed WebGPU frame.
 - Direct, indirect, and combined output modes approximated with Godot SDFGI, SSIL, ambient, and directional light controls.
 - Runtime light controls for azimuth, elevation, intensity, auto-animation, and animation speed.
+- Runtime surfel preview controls for visibility, size, and sample budget.
 - Forward+ lighting with high-resolution directional shadows, SDFGI, SSIL, SSAO, glow, and HDR sky fallback.
 
 ## Work Remaining For 1:1 Rendering

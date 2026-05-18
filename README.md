@@ -22,6 +22,8 @@ Extra verification options:
 godot --path . --scene res://scenes/Main.tscn -- --screenshots --screenshot-scenes=cornell-box,sponza --screenshot-modes=direct,indirect,combined --screenshot-views=default,left,right,high --screenshot-delay=0.5
 ```
 
+Use `--screenshot-hide-ui` when capturing images for diff comparison. Use `--surfel-debug` to render the GPU-instanced surfel preview.
+
 ## Image comparison
 
 ```powershell
@@ -46,13 +48,15 @@ Then compare a pair with:
 
 ## Controls
 
-- Left mouse drag: orbit.
-- Right or middle mouse drag: pan.
+- Right mouse drag: look around.
+- Right mouse drag + WASD/QE: fly camera.
+- Alt + left mouse drag: orbit.
+- Middle mouse drag: pan.
 - Mouse wheel: zoom.
-- WASD: move target on the view plane.
-- Q/E: move target down/up.
+- Shift: speed boost while moving.
 - M: cycle output mode.
 - R: reset camera to current scene preset.
+- G: toggle surfel preview.
 - 1-6: load scene preset.
 - F12: capture current scene.
 - Ctrl+F12: capture all scene presets.

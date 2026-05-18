@@ -31,6 +31,18 @@ public partial class Main : Node3D
         public float AmbientEnergy { get; init; } = 0.55f;
     }
 
+    private readonly struct SurfelSample
+    {
+        public SurfelSample(Vector3 position, Color color)
+        {
+            Position = position;
+            Color = color;
+        }
+
+        public Vector3 Position { get; }
+        public Color Color { get; }
+    }
+
     private readonly List<ScenePreset> _presets = new()
     {
         new ScenePreset
@@ -104,15 +116,20 @@ public partial class Main : Node3D
     private WorldEnvironment _worldEnvironment = null!;
     private Godot.Environment _environment = null!;
     private Node3D _sceneRoot = null!;
+    private MultiMeshInstance3D _surfelPreview = null!;
+    private CanvasLayer _uiLayer = null!;
     private OptionButton _sceneSelect = null!;
     private OptionButton _giModeSelect = null!;
     private Label _statusLabel = null!;
     private CheckButton _animateLight = null!;
+    private CheckButton _surfelDebug = null!;
     private HSlider _indirectSlider = null!;
     private HSlider _azimuthSlider = null!;
     private HSlider _elevationSlider = null!;
     private HSlider _lightIntensitySlider = null!;
     private HSlider _lightSpeedSlider = null!;
+    private HSlider _surfelSizeSlider = null!;
+    private HSlider _surfelBudgetSlider = null!;
     private int _currentPresetIndex;
     private Vector3 _target = Vector3.Zero;
     private float _yaw;
@@ -120,6 +137,7 @@ public partial class Main : Node3D
     private float _distance = 8.0f;
     private bool _orbiting;
     private bool _panning;
+    private bool _looking;
     private float _lightAnimationTime;
     private float _lightAzimuthDeg = 35.0f;
     private float _lightElevationDeg = 50.0f;
@@ -131,6 +149,10 @@ public partial class Main : Node3D
     private GiOutputMode _giMode = GiOutputMode.Combined;
     private bool _syncingControls;
     private string _screenshotViewName = "default";
+    private bool _surfelPreviewEnabled;
+    private bool _hideUiDuringScreenshots;
+    private float _surfelPreviewSize = 0.035f;
+    private int _surfelPreviewBudget = 8192;
     private const float MaxScreenshotDelaySeconds = 5.0f;
 
     public override void _Ready()
@@ -138,8 +160,9 @@ public partial class Main : Node3D
         BuildWorld();
         BuildUi();
 
-        LoadPreset(0);
         var args = ParseArguments();
+        _surfelPreviewEnabled = args.ContainsKey("surfel-debug");
+        LoadPreset(0);
         if (args.ContainsKey("compare"))
         {
             RunImageComparison(args);
@@ -171,9 +194,14 @@ public partial class Main : Node3D
         {
             if (button.ButtonIndex == MouseButton.Left)
             {
-                _orbiting = button.Pressed;
+                _orbiting = button.Pressed && button.AltPressed;
             }
-            else if (button.ButtonIndex is MouseButton.Right or MouseButton.Middle)
+            else if (button.ButtonIndex == MouseButton.Right)
+            {
+                _looking = button.Pressed;
+                Input.MouseMode = _looking ? Input.MouseModeEnum.Captured : Input.MouseModeEnum.Visible;
+            }
+            else if (button.ButtonIndex == MouseButton.Middle)
             {
                 _panning = button.Pressed;
             }
@@ -193,8 +221,12 @@ public partial class Main : Node3D
             if (_orbiting)
             {
                 _yaw -= motion.Relative.X * 0.006f;
-                _pitch = Mathf.Clamp(_pitch - motion.Relative.Y * 0.006f, -1.45f, 1.45f);
+                _pitch = Mathf.Clamp(_pitch + motion.Relative.Y * 0.006f, -1.45f, 1.45f);
                 UpdateCameraTransform();
+            }
+            else if (_looking)
+            {
+                LookCamera(motion.Relative);
             }
             else if (_panning)
             {
@@ -230,6 +262,15 @@ public partial class Main : Node3D
             {
                 ResetCameraToCurrentPreset();
             }
+            else if (key.Keycode == Key.Escape && _looking)
+            {
+                _looking = false;
+                Input.MouseMode = Input.MouseModeEnum.Visible;
+            }
+            else if (key.Keycode == Key.G)
+            {
+                SetSurfelPreviewEnabled(!_surfelPreviewEnabled);
+            }
         }
     }
 
@@ -262,12 +303,20 @@ public partial class Main : Node3D
 
         _worldEnvironment = new WorldEnvironment { Name = "WorldEnvironment" };
         AddChild(_worldEnvironment);
+
+        _surfelPreview = new MultiMeshInstance3D
+        {
+            Name = "SurfelPreview",
+            Visible = false,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+        };
+        AddChild(_surfelPreview);
     }
 
     private void BuildUi()
     {
-        var root = new CanvasLayer { Name = "Ui" };
-        AddChild(root);
+        _uiLayer = new CanvasLayer { Name = "Ui" };
+        AddChild(_uiLayer);
 
         var controls = new HBoxContainer
         {
@@ -275,7 +324,7 @@ public partial class Main : Node3D
             Position = new Vector2(15, 15),
             CustomMinimumSize = new Vector2(420, 36),
         };
-        root.AddChild(controls);
+        _uiLayer.AddChild(controls);
 
         var style = new StyleBoxFlat
         {
@@ -317,7 +366,7 @@ public partial class Main : Node3D
             Position = new Vector2(15, 58),
             CustomMinimumSize = new Vector2(980, 36),
         };
-        root.AddChild(renderControls);
+        _uiLayer.AddChild(renderControls);
 
         _giModeSelect = new OptionButton { CustomMinimumSize = new Vector2(130, 34) };
         _giModeSelect.AddItem("Direct", (int)GiOutputMode.Direct);
@@ -367,14 +416,44 @@ public partial class Main : Node3D
         _lightSpeedSlider.ValueChanged += value => _lightSpeed = (float)value;
         renderControls.AddChild(_lightSpeedSlider);
 
+        var debugControls = new HBoxContainer
+        {
+            Name = "DebugControls",
+            Position = new Vector2(15, 100),
+            CustomMinimumSize = new Vector2(720, 36),
+        };
+        _uiLayer.AddChild(debugControls);
+
+        _surfelDebug = new CheckButton { Text = "Surfels", CustomMinimumSize = new Vector2(110, 34) };
+        _surfelDebug.Toggled += SetSurfelPreviewEnabled;
+        debugControls.AddChild(_surfelDebug);
+
+        debugControls.AddChild(MakeLabel("Size"));
+        _surfelSizeSlider = MakeSlider(0.005, 0.15, 0.001);
+        _surfelSizeSlider.ValueChanged += value =>
+        {
+            _surfelPreviewSize = (float)value;
+            RebuildSurfelPreview();
+        };
+        debugControls.AddChild(_surfelSizeSlider);
+
+        debugControls.AddChild(MakeLabel("Budget"));
+        _surfelBudgetSlider = MakeSlider(512.0, 32768.0, 512.0);
+        _surfelBudgetSlider.ValueChanged += value =>
+        {
+            _surfelPreviewBudget = Mathf.RoundToInt((float)value);
+            RebuildSurfelPreview();
+        };
+        debugControls.AddChild(_surfelBudgetSlider);
+
         _statusLabel = new Label
         {
             Text = "",
-            Position = new Vector2(15, 100),
+            Position = new Vector2(15, 142),
             CustomMinimumSize = new Vector2(720, 24),
             Modulate = new Color(0.92f, 0.92f, 0.92f, 0.88f),
         };
-        root.AddChild(_statusLabel);
+        _uiLayer.AddChild(_statusLabel);
     }
 
     private static Label MakeLabel(string text)
@@ -441,6 +520,7 @@ public partial class Main : Node3D
         SetOrbitFromCamera(preset.CameraPosition, preset.CameraTarget);
         SyncControls();
         ApplyOutputMode();
+        RebuildSurfelPreview();
         SetStatus($"{preset.Label} loaded");
     }
 
@@ -554,6 +634,9 @@ public partial class Main : Node3D
         _elevationSlider.Value = _lightElevationDeg;
         _lightIntensitySlider.Value = _lightIntensity;
         _lightSpeedSlider.Value = _lightSpeed;
+        _surfelDebug.ButtonPressed = _surfelPreviewEnabled;
+        _surfelSizeSlider.Value = _surfelPreviewSize;
+        _surfelBudgetSlider.Value = _surfelPreviewBudget;
         _syncingControls = false;
     }
 
@@ -561,6 +644,7 @@ public partial class Main : Node3D
     {
         foreach (var child in _sceneRoot.GetChildren())
         {
+            _sceneRoot.RemoveChild(child);
             child.QueueFree();
         }
     }
@@ -692,6 +776,187 @@ public partial class Main : Node3D
         }
     }
 
+    private void SetSurfelPreviewEnabled(bool enabled)
+    {
+        _surfelPreviewEnabled = enabled;
+        if (_surfelPreview != null)
+        {
+            _surfelPreview.Visible = enabled;
+        }
+
+        if (!_syncingControls && enabled)
+        {
+            RebuildSurfelPreview();
+        }
+    }
+
+    private void RebuildSurfelPreview()
+    {
+        if (_surfelPreview == null)
+        {
+            return;
+        }
+
+        if (!_surfelPreviewEnabled)
+        {
+            _surfelPreview.Multimesh = null;
+            _surfelPreview.Visible = false;
+            return;
+        }
+
+        var samples = new List<SurfelSample>(Mathf.Clamp(_surfelPreviewBudget, 1, 32768));
+        var meshCount = Mathf.Max(1, CountMeshInstances(_sceneRoot));
+        CollectSurfelSamples(_sceneRoot, samples, samples.Capacity, meshCount);
+
+        var multimesh = new MultiMesh
+        {
+            TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
+            UseColors = true,
+            Mesh = new BoxMesh { Size = Vector3.One },
+            InstanceCount = samples.Count,
+            VisibleInstanceCount = samples.Count,
+        };
+
+        var basis = Basis.Identity.Scaled(Vector3.One * _surfelPreviewSize);
+        for (var i = 0; i < samples.Count; i++)
+        {
+            multimesh.SetInstanceTransform(i, new Transform3D(basis, samples[i].Position));
+            multimesh.SetInstanceColor(i, samples[i].Color);
+        }
+
+        _surfelPreview.Multimesh = multimesh;
+        _surfelPreview.Visible = true;
+        GD.Print($"Built surfel preview: {samples.Count} surfels");
+    }
+
+    private void CollectSurfelSamples(Node node, List<SurfelSample> samples, int budget, int meshCount)
+    {
+        if (samples.Count >= budget)
+        {
+            return;
+        }
+
+        if (node is MeshInstance3D meshInstance && meshInstance.Mesh != null && meshInstance.Visible)
+        {
+            CollectMeshSurfelSamples(meshInstance, samples, budget, meshCount);
+        }
+
+        foreach (var child in node.GetChildren())
+        {
+            CollectSurfelSamples(child, samples, budget, meshCount);
+            if (samples.Count >= budget)
+            {
+                return;
+            }
+        }
+    }
+
+    private void CollectMeshSurfelSamples(MeshInstance3D meshInstance, List<SurfelSample> samples, int budget, int meshCount)
+    {
+        var mesh = meshInstance.Mesh;
+        var perMeshTarget = Mathf.Max(32, budget / Math.Max(1, meshCount));
+        if (mesh is BoxMesh box)
+        {
+            CollectBoxSurfelSamples(meshInstance, box, samples, budget, perMeshTarget);
+            return;
+        }
+
+        var surfaceCount = mesh.GetSurfaceCount();
+        if (surfaceCount <= 0)
+        {
+            return;
+        }
+
+        var perSurfaceTarget = Mathf.Max(8, perMeshTarget / Math.Max(1, surfaceCount));
+        for (var surface = 0; surface < surfaceCount && samples.Count < budget; surface++)
+        {
+            var arrays = mesh.SurfaceGetArrays(surface);
+            if (arrays.Count <= (int)Mesh.ArrayType.Vertex)
+            {
+                continue;
+            }
+
+            var vertices = arrays[(int)Mesh.ArrayType.Vertex].AsVector3Array();
+            if (vertices.Length == 0)
+            {
+                continue;
+            }
+
+            var color = GetMeshSurfaceColor(meshInstance, surface);
+            var stride = Mathf.Max(1, vertices.Length / perSurfaceTarget);
+            var transform = meshInstance.GlobalTransform;
+
+            for (var i = 0; i < vertices.Length && samples.Count < budget; i += stride)
+            {
+                samples.Add(new SurfelSample(transform * vertices[i], color));
+            }
+        }
+    }
+
+    private void CollectBoxSurfelSamples(MeshInstance3D meshInstance, BoxMesh box, List<SurfelSample> samples, int budget, int perMeshTarget)
+    {
+        var grid = Mathf.Clamp(Mathf.RoundToInt(Mathf.Sqrt(perMeshTarget / 6.0f)), 2, 24);
+        var half = box.Size * 0.5f;
+        var transform = meshInstance.GlobalTransform;
+        var color = GetMeshSurfaceColor(meshInstance, 0);
+
+        for (var face = 0; face < 6 && samples.Count < budget; face++)
+        {
+            for (var y = 0; y < grid && samples.Count < budget; y++)
+            {
+                var v = grid == 1 ? 0.5f : y / (grid - 1.0f);
+                for (var x = 0; x < grid && samples.Count < budget; x++)
+                {
+                    var u = grid == 1 ? 0.5f : x / (grid - 1.0f);
+                    var px = Mathf.Lerp(-half.X, half.X, u);
+                    var py = Mathf.Lerp(-half.Y, half.Y, v);
+                    var pz = Mathf.Lerp(-half.Z, half.Z, u);
+                    var qz = Mathf.Lerp(-half.Z, half.Z, v);
+
+                    var local = face switch
+                    {
+                        0 => new Vector3(-half.X, py, qz),
+                        1 => new Vector3(half.X, py, qz),
+                        2 => new Vector3(px, -half.Y, qz),
+                        3 => new Vector3(px, half.Y, qz),
+                        4 => new Vector3(px, py, -half.Z),
+                        _ => new Vector3(px, py, half.Z),
+                    };
+
+                    samples.Add(new SurfelSample(transform * local, color));
+                }
+            }
+        }
+    }
+
+    private int CountMeshInstances(Node node)
+    {
+        var count = node is MeshInstance3D meshInstance && meshInstance.Mesh != null && meshInstance.Visible ? 1 : 0;
+        foreach (var child in node.GetChildren())
+        {
+            count += CountMeshInstances(child);
+        }
+
+        return count;
+    }
+
+    private static Color GetMeshSurfaceColor(MeshInstance3D meshInstance, int surface)
+    {
+        var material =
+            meshInstance.MaterialOverride ??
+            meshInstance.GetSurfaceOverrideMaterial(surface) ??
+            meshInstance.Mesh?.SurfaceGetMaterial(surface);
+
+        if (material is StandardMaterial3D standard)
+        {
+            var color = standard.AlbedoColor;
+            color.A = 1.0f;
+            return color;
+        }
+
+        return new Color(0.55f, 0.78f, 1.0f, 1.0f);
+    }
+
     private void SetOrbitFromCamera(Vector3 position, Vector3 target)
     {
         _target = target;
@@ -716,6 +981,29 @@ public partial class Main : Node3D
             _distance * Mathf.Sin(_pitch),
             _distance * cp * Mathf.Cos(_yaw));
         _camera.Position = _target + offset;
+        _camera.LookAt(_target, Vector3.Up);
+    }
+
+    private void UpdateOrbitFromCurrentCamera()
+    {
+        var offset = _camera.Position - _target;
+        _distance = Mathf.Max(0.25f, offset.Length());
+        _yaw = Mathf.Atan2(offset.X, offset.Z);
+        _pitch = Mathf.Asin(Mathf.Clamp(offset.Y / _distance, -1.0f, 1.0f));
+    }
+
+    private void LookCamera(Vector2 pixels)
+    {
+        _yaw -= pixels.X * 0.0045f;
+        _pitch = Mathf.Clamp(_pitch + pixels.Y * 0.0045f, -1.45f, 1.45f);
+
+        var cp = Mathf.Cos(_pitch);
+        var forward = new Vector3(
+            -cp * Mathf.Sin(_yaw),
+            -Mathf.Sin(_pitch),
+            -cp * Mathf.Cos(_yaw)).Normalized();
+
+        _target = _camera.Position + forward * _distance;
         _camera.LookAt(_target, Vector3.Up);
     }
 
@@ -744,8 +1032,12 @@ public partial class Main : Node3D
 
         if (movement.LengthSquared() > 0.0001f)
         {
-            _target += movement.Normalized() * (_distance * 0.65f + 1.0f) * delta;
-            UpdateCameraTransform();
+            var speed = (_distance * 0.65f + 1.0f) * (Input.IsKeyPressed(Key.Shift) ? 4.0f : 1.0f);
+            var deltaMove = movement.Normalized() * speed * delta;
+            _camera.Position += deltaMove;
+            _target += deltaMove;
+            UpdateOrbitFromCurrentCamera();
+            _camera.LookAt(_target, Vector3.Up);
         }
     }
 
@@ -754,6 +1046,7 @@ public partial class Main : Node3D
         var dir = args.TryGetValue("screenshot-dir", out var dirArg) ? dirArg : "screenshots";
         var delay = ParseFloat(args.GetValueOrDefault("screenshot-delay"), 1.0f);
         delay = Mathf.Clamp(delay, 0.0f, MaxScreenshotDelaySeconds);
+        _hideUiDuringScreenshots = args.ContainsKey("screenshot-hide-ui");
         var sceneIds = args.TryGetValue("screenshot-scenes", out var scenes)
             ? scenes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             : _presets.Select(preset => preset.Id).ToArray();
@@ -837,28 +1130,42 @@ public partial class Main : Node3D
     private async Task CaptureScreenshot(float delay, string directory)
     {
         delay = Mathf.Clamp(delay, 0.0f, MaxScreenshotDelaySeconds);
-        if (delay > 0.0f)
+        var previousUiVisible = _uiLayer.Visible;
+        if (_hideUiDuringScreenshots)
         {
-            await ToSignal(GetTree().CreateTimer(delay), SceneTreeTimer.SignalName.Timeout);
+            _uiLayer.Visible = false;
         }
 
-        await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+        try
+        {
+            if (delay > 0.0f)
+            {
+                await ToSignal(GetTree().CreateTimer(delay), SceneTreeTimer.SignalName.Timeout);
+            }
 
-        var image = GetViewport().GetTexture().GetImage();
-        var absoluteDirectory = MakeScreenshotDirectory(directory);
-        var preset = _presets[_currentPresetIndex];
-        var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture);
-        var path = System.IO.Path.Combine(absoluteDirectory, $"{preset.Id}-{_giMode.ToString().ToLowerInvariant()}-{_screenshotViewName}-{timestamp}.png");
-        var error = image.SavePng(path);
-        if (error == Error.Ok)
-        {
-            SetStatus($"Saved screenshot: {path}");
-            GD.Print($"Saved screenshot: {path}");
+            await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+
+            var image = GetViewport().GetTexture().GetImage();
+            var absoluteDirectory = MakeScreenshotDirectory(directory);
+            var preset = _presets[_currentPresetIndex];
+            var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture);
+            var debugSuffix = _surfelPreviewEnabled ? "-surfels" : "";
+            var path = System.IO.Path.Combine(absoluteDirectory, $"{preset.Id}-{_giMode.ToString().ToLowerInvariant()}-{_screenshotViewName}{debugSuffix}-{timestamp}.png");
+            var error = image.SavePng(path);
+            if (error == Error.Ok)
+            {
+                SetStatus($"Saved screenshot: {path}");
+                GD.Print($"Saved screenshot: {path}");
+            }
+            else
+            {
+                SetStatus($"Screenshot failed: {error}");
+                GD.PushError($"Screenshot failed: {error}");
+            }
         }
-        else
+        finally
         {
-            SetStatus($"Screenshot failed: {error}");
-            GD.PushError($"Screenshot failed: {error}");
+            _uiLayer.Visible = previousUiVisible;
         }
     }
 
