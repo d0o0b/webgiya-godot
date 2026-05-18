@@ -1,0 +1,8 @@
+.godot/
+.vs/
+.vscode/
+bin/
+obj/
+screenshots/*.png
+*.tmp
+*.log
