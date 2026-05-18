@@ -8,6 +8,13 @@ using System.Threading.Tasks;
 
 public partial class Main : Node3D
 {
+    private enum GiOutputMode
+    {
+        Direct,
+        Indirect,
+        Combined,
+    }
+
     private sealed class ScenePreset
     {
         public required string Id { get; init; }
@@ -94,10 +101,17 @@ public partial class Main : Node3D
     private Camera3D _camera = null!;
     private DirectionalLight3D _sun = null!;
     private WorldEnvironment _worldEnvironment = null!;
+    private Godot.Environment _environment = null!;
     private Node3D _sceneRoot = null!;
     private OptionButton _sceneSelect = null!;
+    private OptionButton _giModeSelect = null!;
     private Label _statusLabel = null!;
     private CheckButton _animateLight = null!;
+    private HSlider _indirectSlider = null!;
+    private HSlider _azimuthSlider = null!;
+    private HSlider _elevationSlider = null!;
+    private HSlider _lightIntensitySlider = null!;
+    private HSlider _lightSpeedSlider = null!;
     private int _currentPresetIndex;
     private Vector3 _target = Vector3.Zero;
     private float _yaw;
@@ -106,6 +120,16 @@ public partial class Main : Node3D
     private bool _orbiting;
     private bool _panning;
     private float _lightAnimationTime;
+    private float _lightAzimuthDeg = 35.0f;
+    private float _lightElevationDeg = 50.0f;
+    private float _lightIntensity = 2.0f;
+    private float _lightSpeed = 0.5f;
+    private float _indirectIntensity = 1.0f;
+    private float _presetAmbientEnergy = 0.55f;
+    private float _presetIndirectEnergy = 1.0f;
+    private GiOutputMode _giMode = GiOutputMode.Combined;
+    private bool _syncingControls;
+    private string _screenshotViewName = "default";
     private const float MaxScreenshotDelaySeconds = 5.0f;
 
     public override void _Ready()
@@ -127,10 +151,11 @@ public partial class Main : Node3D
         if (_animateLight.ButtonPressed)
         {
             _lightAnimationTime += (float)delta;
-            var x = Mathf.Sin(_lightAnimationTime * 0.5f) * 10.0f;
-            var z = Mathf.Cos(_lightAnimationTime * 0.5f) * 10.0f;
+            var x = Mathf.Sin(_lightAnimationTime * _lightSpeed) * 10.0f;
+            var z = Mathf.Cos(_lightAnimationTime * _lightSpeed) * 10.0f;
             _sun.Position = new Vector3(x, 20.5f, z);
             _sun.LookAt(Vector3.Zero);
+            ApplySunEnergy();
         }
     }
 
@@ -182,6 +207,22 @@ public partial class Main : Node3D
                 {
                     _ = CaptureScreenshot(0.0f, "screenshots");
                 }
+            }
+            else if (key.Keycode >= Key.Key1 && key.Keycode <= Key.Key6)
+            {
+                var index = (int)(key.Keycode - Key.Key1);
+                if (index < _presets.Count)
+                {
+                    LoadPreset(index);
+                }
+            }
+            else if (key.Keycode == Key.M)
+            {
+                SetGiMode((GiOutputMode)(((int)_giMode + 1) % 3));
+            }
+            else if (key.Keycode == Key.R)
+            {
+                ResetCameraToCurrentPreset();
             }
         }
     }
@@ -264,14 +305,91 @@ public partial class Main : Node3D
         shot.Pressed += () => _ = CaptureScreenshot(0.0f, "screenshots");
         controls.AddChild(shot);
 
+        var renderControls = new HBoxContainer
+        {
+            Name = "RenderControls",
+            Position = new Vector2(15, 58),
+            CustomMinimumSize = new Vector2(980, 36),
+        };
+        root.AddChild(renderControls);
+
+        _giModeSelect = new OptionButton { CustomMinimumSize = new Vector2(130, 34) };
+        _giModeSelect.AddItem("Direct", (int)GiOutputMode.Direct);
+        _giModeSelect.AddItem("Indirect", (int)GiOutputMode.Indirect);
+        _giModeSelect.AddItem("Combined", (int)GiOutputMode.Combined);
+        _giModeSelect.ItemSelected += index => SetGiMode((GiOutputMode)index);
+        renderControls.AddChild(_giModeSelect);
+
+        renderControls.AddChild(MakeLabel("Indirect"));
+        _indirectSlider = MakeSlider(0.0, 3.0, 0.01);
+        _indirectSlider.ValueChanged += value =>
+        {
+            _indirectIntensity = (float)value;
+            ApplyOutputMode();
+        };
+        renderControls.AddChild(_indirectSlider);
+
+        renderControls.AddChild(MakeLabel("Azimuth"));
+        _azimuthSlider = MakeSlider(-180.0, 180.0, 0.1);
+        _azimuthSlider.ValueChanged += value =>
+        {
+            _lightAzimuthDeg = (float)value;
+            ApplyManualLightAngles();
+        };
+        renderControls.AddChild(_azimuthSlider);
+
+        renderControls.AddChild(MakeLabel("Elevation"));
+        _elevationSlider = MakeSlider(-5.0, 89.0, 0.1);
+        _elevationSlider.ValueChanged += value =>
+        {
+            _lightElevationDeg = (float)value;
+            ApplyManualLightAngles();
+        };
+        renderControls.AddChild(_elevationSlider);
+
+        renderControls.AddChild(MakeLabel("Light"));
+        _lightIntensitySlider = MakeSlider(0.0, 20.0, 0.01);
+        _lightIntensitySlider.ValueChanged += value =>
+        {
+            _lightIntensity = (float)value;
+            ApplySunEnergy();
+        };
+        renderControls.AddChild(_lightIntensitySlider);
+
+        renderControls.AddChild(MakeLabel("Speed"));
+        _lightSpeedSlider = MakeSlider(0.1, 5.0, 0.01);
+        _lightSpeedSlider.ValueChanged += value => _lightSpeed = (float)value;
+        renderControls.AddChild(_lightSpeedSlider);
+
         _statusLabel = new Label
         {
             Text = "",
-            Position = new Vector2(15, 58),
+            Position = new Vector2(15, 100),
             CustomMinimumSize = new Vector2(720, 24),
             Modulate = new Color(0.92f, 0.92f, 0.92f, 0.88f),
         };
         root.AddChild(_statusLabel);
+    }
+
+    private static Label MakeLabel(string text)
+    {
+        return new Label
+        {
+            Text = text,
+            CustomMinimumSize = new Vector2(62, 34),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+    }
+
+    private static HSlider MakeSlider(double min, double max, double step)
+    {
+        return new HSlider
+        {
+            MinValue = min,
+            MaxValue = max,
+            Step = step,
+            CustomMinimumSize = new Vector2(100, 34),
+        };
     }
 
     private void LoadPreset(int index)
@@ -283,6 +401,7 @@ public partial class Main : Node3D
         var preset = _presets[index];
         SetStatus($"Loading {preset.Label}");
         ClearScene();
+        CapturePresetSettings(preset);
         ConfigureEnvironment(preset);
         ConfigureLight(preset);
 
@@ -314,57 +433,122 @@ public partial class Main : Node3D
         }
 
         SetOrbitFromCamera(preset.CameraPosition, preset.CameraTarget);
+        SyncControls();
+        ApplyOutputMode();
         SetStatus($"{preset.Label} loaded");
+    }
+
+    private void CapturePresetSettings(ScenePreset preset)
+    {
+        _lightAzimuthDeg = preset.LightAzimuthDeg;
+        _lightElevationDeg = preset.LightElevationDeg;
+        _lightIntensity = preset.LightIntensity;
+        _indirectIntensity = preset.IndirectEnergy;
+        _presetAmbientEnergy = preset.AmbientEnergy;
+        _presetIndirectEnergy = 1.0f;
+        _lightSpeed = 0.5f;
+        _animateLight.ButtonPressed = false;
+        _lightAnimationTime = 0.0f;
     }
 
     private void ConfigureEnvironment(ScenePreset preset)
     {
-        var environment = new Godot.Environment();
-        environment.Set("background_mode", 2);
-        environment.Set("background_color", new Color(0.125f, 0.125f, 0.145f));
-        environment.Set("ambient_light_color", Colors.White);
-        environment.Set("ambient_light_source", 3);
-        environment.Set("ambient_light_energy", preset.AmbientEnergy);
-        environment.Set("ambient_light_sky_contribution", 1.0f);
-        environment.Set("reflected_light_source", 2);
-        environment.Set("tonemap_mode", 3);
-        environment.Set("tonemap_exposure", 0.85f);
-        environment.Set("tonemap_white", 1.0f);
-        environment.Set("ssao_enabled", true);
-        environment.Set("ssao_radius", 2.0f);
-        environment.Set("ssao_intensity", 1.6f);
-        environment.Set("ssil_enabled", true);
-        environment.Set("ssil_radius", 5.0f);
-        environment.Set("ssil_intensity", 1.0f);
-        environment.Set("sdfgi_enabled", true);
-        environment.Set("sdfgi_energy", preset.IndirectEnergy);
-        environment.Set("sdfgi_bounce_feedback", 0.65f);
-        environment.Set("sdfgi_read_sky_light", true);
-        environment.Set("glow_enabled", true);
-        environment.Set("glow_intensity", 0.08f);
+        _environment = new Godot.Environment();
+        _environment.Set("background_mode", 2);
+        _environment.Set("background_color", new Color(0.125f, 0.125f, 0.145f));
+        _environment.Set("ambient_light_color", Colors.White);
+        _environment.Set("ambient_light_source", 3);
+        _environment.Set("ambient_light_sky_contribution", 1.0f);
+        _environment.Set("reflected_light_source", 2);
+        _environment.Set("tonemap_mode", 3);
+        _environment.Set("tonemap_exposure", 0.85f);
+        _environment.Set("tonemap_white", 1.0f);
+        _environment.Set("ssao_enabled", true);
+        _environment.Set("ssao_radius", 2.0f);
+        _environment.Set("ssao_intensity", 1.6f);
+        _environment.Set("ssil_enabled", true);
+        _environment.Set("ssil_radius", 5.0f);
+        _environment.Set("sdfgi_enabled", true);
+        _environment.Set("sdfgi_bounce_feedback", 0.65f);
+        _environment.Set("sdfgi_read_sky_light", true);
+        _environment.Set("glow_enabled", true);
+        _environment.Set("glow_intensity", 0.08f);
 
         var texture = ResourceLoader.Load<Texture2D>(preset.HdrPath);
         if (texture != null)
         {
             var skyMaterial = new PanoramaSkyMaterial { Panorama = texture };
             var sky = new Sky { SkyMaterial = skyMaterial };
-            environment.Set("sky", sky);
+            _environment.Set("sky", sky);
         }
 
-        _worldEnvironment.Environment = environment;
+        _worldEnvironment.Environment = _environment;
     }
 
     private void ConfigureLight(ScenePreset preset)
     {
-        _sun.LightEnergy = preset.LightIntensity;
-        var az = Mathf.DegToRad(preset.LightAzimuthDeg);
-        var el = Mathf.DegToRad(preset.LightElevationDeg);
+        ApplyManualLightAngles();
+        ApplySunEnergy();
+    }
+
+    private void ApplyManualLightAngles()
+    {
+        if (_syncingControls || _animateLight.ButtonPressed)
+        {
+            return;
+        }
+
+        var az = Mathf.DegToRad(_lightAzimuthDeg);
+        var el = Mathf.DegToRad(_lightElevationDeg);
         const float radius = 40.0f;
         _sun.Position = new Vector3(
             radius * Mathf.Cos(el) * Mathf.Cos(az),
             radius * Mathf.Sin(el),
             radius * Mathf.Cos(el) * Mathf.Sin(az));
         _sun.LookAt(Vector3.Zero);
+    }
+
+    private void SetGiMode(GiOutputMode mode)
+    {
+        _giMode = mode;
+        if (_giModeSelect.Selected != (int)mode)
+        {
+            _giModeSelect.Select((int)mode);
+        }
+
+        ApplyOutputMode();
+    }
+
+    private void ApplyOutputMode()
+    {
+        if (_environment == null)
+        {
+            return;
+        }
+
+        var indirectScale = _giMode == GiOutputMode.Direct ? 0.0f : _indirectIntensity;
+        _environment.Set("ambient_light_energy", Mathf.Max(0.02f, _presetAmbientEnergy * indirectScale));
+        _environment.Set("sdfgi_enabled", indirectScale > 0.0f);
+        _environment.Set("sdfgi_energy", _presetIndirectEnergy * indirectScale);
+        _environment.Set("ssil_intensity", _giMode == GiOutputMode.Direct ? 0.0f : indirectScale);
+        ApplySunEnergy();
+    }
+
+    private void ApplySunEnergy()
+    {
+        _sun.LightEnergy = _giMode == GiOutputMode.Indirect ? 0.0f : _lightIntensity;
+    }
+
+    private void SyncControls()
+    {
+        _syncingControls = true;
+        _giModeSelect.Select((int)_giMode);
+        _indirectSlider.Value = _indirectIntensity;
+        _azimuthSlider.Value = _lightAzimuthDeg;
+        _elevationSlider.Value = _lightElevationDeg;
+        _lightIntensitySlider.Value = _lightIntensity;
+        _lightSpeedSlider.Value = _lightSpeed;
+        _syncingControls = false;
     }
 
     private void ClearScene()
@@ -512,6 +696,12 @@ public partial class Main : Node3D
         UpdateCameraTransform();
     }
 
+    private void ResetCameraToCurrentPreset()
+    {
+        var preset = _presets[_currentPresetIndex];
+        SetOrbitFromCamera(preset.CameraPosition, preset.CameraTarget);
+    }
+
     private void UpdateCameraTransform()
     {
         var cp = Mathf.Cos(_pitch);
@@ -561,18 +751,36 @@ public partial class Main : Node3D
         var sceneIds = args.TryGetValue("screenshot-scenes", out var scenes)
             ? scenes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             : _presets.Select(preset => preset.Id).ToArray();
+        var modes = args.TryGetValue("screenshot-modes", out var rawModes)
+            ? rawModes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(ParseGiMode)
+                .Where(mode => mode.HasValue)
+                .Select(mode => mode!.Value)
+                .ToArray()
+            : new[] { _giMode };
+        var views = args.TryGetValue("screenshot-views", out var rawViews)
+            ? rawViews.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            : new[] { "default" };
 
-        foreach (var sceneId in sceneIds)
+        foreach (var mode in modes)
         {
-            var index = _presets.FindIndex(preset => preset.Id == sceneId);
-            if (index < 0)
+            SetGiMode(mode);
+            foreach (var sceneId in sceneIds)
             {
-                GD.PushWarning($"Unknown screenshot scene '{sceneId}'");
-                continue;
-            }
+                var index = _presets.FindIndex(preset => preset.Id == sceneId);
+                if (index < 0)
+                {
+                    GD.PushWarning($"Unknown screenshot scene '{sceneId}'");
+                    continue;
+                }
 
-            LoadPreset(index);
-            await CaptureScreenshot(delay, dir);
+                LoadPreset(index);
+                foreach (var view in views)
+                {
+                    ApplyScreenshotView(view);
+                    await CaptureScreenshot(delay, dir);
+                }
+            }
         }
 
         if (args.TryGetValue("screenshot-quit", out var quitValue) && quitValue == "false")
@@ -581,6 +789,33 @@ public partial class Main : Node3D
         }
 
         GetTree().Quit();
+    }
+
+    private void ApplyScreenshotView(string viewName)
+    {
+        _screenshotViewName = viewName.ToLowerInvariant();
+        ResetCameraToCurrentPreset();
+
+        switch (_screenshotViewName)
+        {
+            case "left":
+                _yaw -= 0.45f;
+                break;
+            case "right":
+                _yaw += 0.45f;
+                break;
+            case "high":
+                _pitch = Mathf.Clamp(_pitch + 0.35f, -1.45f, 1.45f);
+                break;
+            case "close":
+                _distance = Mathf.Max(0.25f, _distance * 0.55f);
+                break;
+            default:
+                _screenshotViewName = "default";
+                break;
+        }
+
+        UpdateCameraTransform();
     }
 
     private async Task CaptureAllPresets(float delay, string directory)
@@ -607,7 +842,7 @@ public partial class Main : Node3D
         var absoluteDirectory = MakeScreenshotDirectory(directory);
         var preset = _presets[_currentPresetIndex];
         var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture);
-        var path = System.IO.Path.Combine(absoluteDirectory, $"{preset.Id}-{timestamp}.png");
+        var path = System.IO.Path.Combine(absoluteDirectory, $"{preset.Id}-{_giMode.ToString().ToLowerInvariant()}-{_screenshotViewName}-{timestamp}.png");
         var error = image.SavePng(path);
         if (error == Error.Ok)
         {
@@ -638,6 +873,17 @@ public partial class Main : Node3D
         return float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : fallback;
+    }
+
+    private static GiOutputMode? ParseGiMode(string value)
+    {
+        return value.ToLowerInvariant() switch
+        {
+            "direct" => GiOutputMode.Direct,
+            "indirect" => GiOutputMode.Indirect,
+            "combined" => GiOutputMode.Combined,
+            _ => null,
+        };
     }
 
     private static Dictionary<string, string> ParseArguments()

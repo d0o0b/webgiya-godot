@@ -26,6 +26,9 @@ The first Godot slice establishes the verification loop and visual baseline:
 - Orbit camera, pan, zoom, and keyboard movement.
 - Screenshot capture for current scene and all presets.
 - Headless multi-screenshot CLI with a maximum 5 second delay.
+- Screenshot sweeps across output modes and camera view variants.
+- Direct, indirect, and combined output modes approximated with Godot SDFGI, SSIL, ambient, and directional light controls.
+- Runtime light controls for azimuth, elevation, intensity, auto-animation, and animation speed.
 - Forward+ lighting with high-resolution directional shadows, SDFGI, SSIL, SSAO, glow, and HDR sky fallback.
 
 ## Work Remaining For 1:1 Rendering
@@ -34,7 +37,7 @@ Godot does not expose the same WebGPU compute render graph through normal scene 
 
 1. Keep the current Godot scene/preset/screenshot harness as the quality gate.
 2. Validate all asset imports and fix scale/material differences per preset.
-3. Add a GPU GI approximation pass using Godot RenderingDevice or a custom CompositorEffect.
+3. Replace the current SDFGI/SSIL approximation with a custom RenderingDevice or CompositorEffect surfel pass if exact WebGPU parity is required.
 4. Port the surfel data model: pool, alive list, radial depth moments, hash grid, dispatch args.
 5. Port BVH or replace it with Godot-friendly acceleration data for compute ray queries.
 6. Match the reference resolve/composite modes: direct, indirect, combined, debug overlays.

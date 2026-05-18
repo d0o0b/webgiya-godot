@@ -1,5 +1,10 @@
 ; Engine configuration file.
-; Godot 4.7 Mono project for the Webgiya desktop port.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
 
 config_version=5
 
@@ -9,19 +14,17 @@ config/name="Webgiya Godot"
 run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.7", "C#", "Forward Plus")
 
-[dotnet]
-
-project/assembly_name="WebgiyaGodot"
-
 [display]
 
 window/size/viewport_width=1600
 window/size/viewport_height=900
 
+[dotnet]
+
+project/assembly_name="WebgiyaGodot"
+
 [rendering]
 
-renderer/rendering_method="forward_plus"
 renderer/rendering_method.mobile="forward_plus"
 anti_aliasing/quality/msaa_3d=3
 anti_aliasing/quality/screen_space_aa=1
-lights_and_shadows/directional_shadow/size=4096
