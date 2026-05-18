@@ -32,6 +32,7 @@ The first Godot slice establishes the verification loop and visual baseline:
 - GPU-instanced surfel preview/debug mode generated from scene mesh samples.
 - Surfel preview now uses tagged visible faces for hand-built box scenes, area-weighted box-face sampling, deterministic triangle-area sampling for imported meshes, surface-aligned GPU-instanced quads, density/scene-scaled marker sizes, and albedo UV colors for imported materials.
 - Imported surfel preview colors now sample albedo textures by UV, with scene transport albedo boost applied where the reference defines it.
+- Screenshot runs can export structured surfel records as JSON sidecars with position, normal, camera-relative radius, albedo, bounds, and camera metadata for later RenderingDevice/compositor integration.
 - Optional low-count surfel-derived colored OmniLight field for bounced color bleeding experiments in combined and indirect modes.
 - Built-in image comparison command with JSON metrics and visual diff output.
 - Browser-based reference screenshot helper for the original Vite/WebGPU project.

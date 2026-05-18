@@ -266,10 +266,12 @@ public partial class Main : Node3D
     private string _screenshotViewName = "default";
     private bool _surfelPreviewEnabled;
     private bool _surfelLightsEnabled;
+    private bool _exportSurfelDataDuringScreenshots;
     private bool _hideUiDuringScreenshots;
     private float _surfelPreviewSize = 0.035f;
     private int _surfelPreviewBudget = 8192;
     private int _surfelLightCount = 24;
+    private int _surfelExportLimit = 8192;
     private float _surfelLightEnergy = 0.16f;
     private const float MinAutomatedScreenshotDelaySeconds = 2.0f;
     private const float MaxScreenshotDelaySeconds = 5.0f;
@@ -282,10 +284,12 @@ public partial class Main : Node3D
         var args = ParseArguments();
         _surfelPreviewEnabled = args.ContainsKey("surfel-debug");
         _surfelLightsEnabled = ParseBool(args.GetValueOrDefault("surfel-lights"), false) && !args.ContainsKey("no-surfel-lights");
+        _exportSurfelDataDuringScreenshots = args.ContainsKey("export-surfels");
         _surfelLightCount = Mathf.Clamp(ParseInt(args.GetValueOrDefault("surfel-light-count"), _surfelLightCount), 0, 64);
         _surfelLightEnergy = Mathf.Clamp(ParseFloat(args.GetValueOrDefault("surfel-light-energy"), _surfelLightEnergy), 0.0f, 2.0f);
         _surfelPreviewSize = Mathf.Clamp(ParseFloat(args.GetValueOrDefault("surfel-size"), _surfelPreviewSize), 0.002f, 0.25f);
         _surfelPreviewBudget = Mathf.Clamp(ParseInt(args.GetValueOrDefault("surfel-budget"), _surfelPreviewBudget), 256, 65536);
+        _surfelExportLimit = Mathf.Clamp(ParseInt(args.GetValueOrDefault("surfel-export-limit"), _surfelPreviewBudget), 1, 65536);
         LoadPreset(0);
         if (args.ContainsKey("compare"))
         {
@@ -1814,6 +1818,10 @@ public partial class Main : Node3D
             {
                 SetStatus($"Saved screenshot: {path}");
                 GD.Print($"Saved screenshot: {path}");
+                if (_exportSurfelDataDuringScreenshots)
+                {
+                    ExportSurfelData(Path.ChangeExtension(path, ".surfels.json"));
+                }
             }
             else
             {
@@ -1830,6 +1838,109 @@ public partial class Main : Node3D
     private static float ClampAutomatedScreenshotDelay(float delay)
     {
         return Mathf.Clamp(delay, MinAutomatedScreenshotDelaySeconds, MaxScreenshotDelaySeconds);
+    }
+
+    private void ExportSurfelData(string path)
+    {
+        var samples = CreateSurfelSamples(Mathf.Min(_surfelPreviewBudget, _surfelExportLimit));
+        var json = BuildSurfelExportJson(samples);
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        File.WriteAllText(path, json, Encoding.UTF8);
+        GD.Print($"Saved surfel data: {path}");
+    }
+
+    private string BuildSurfelExportJson(List<SurfelSample> samples)
+    {
+        var preset = _presets[_currentPresetIndex];
+        var bounds = ComputeSurfelBounds(samples);
+        var builder = new StringBuilder(samples.Count * 128 + 2048);
+        builder.AppendLine("{");
+        builder.AppendLine($"  \"schema\": \"webgiya-godot.surfel-export.v1\",");
+        builder.AppendLine($"  \"scene\": \"{JsonEscape(preset.Id)}\",");
+        builder.AppendLine($"  \"mode\": \"{_giMode.ToString().ToLowerInvariant()}\",");
+        builder.AppendLine($"  \"view\": \"{JsonEscape(_screenshotViewName)}\",");
+        builder.AppendLine($"  \"count\": {samples.Count},");
+        builder.AppendLine($"  \"surfelBaseRadius\": {FormatFloat(0.24f)},");
+        builder.AppendLine($"  \"surfelGridCellDiameter\": {FormatFloat(0.2f)},");
+        builder.AppendLine($"  \"surfelGridSize\": 32,");
+        builder.AppendLine($"  \"boundsMin\": {JsonVector(bounds.Min)},");
+        builder.AppendLine($"  \"boundsMax\": {JsonVector(bounds.Max)},");
+        builder.AppendLine($"  \"cameraPosition\": {JsonVector(_camera.GlobalPosition)},");
+        builder.AppendLine($"  \"cameraTarget\": {JsonVector(_target)},");
+        builder.AppendLine("  \"samples\": [");
+        for (var i = 0; i < samples.Count; i++)
+        {
+            var sample = samples[i];
+            builder.Append("    {");
+            builder.Append($"\"p\":{JsonVector(sample.Position)},");
+            builder.Append($"\"n\":{JsonVector(sample.Normal)},");
+            builder.Append($"\"r\":{FormatFloat(EstimateReferenceSurfelRadius(sample.Position))},");
+            builder.Append($"\"albedo\":{JsonColor(sample.Color)}");
+            builder.Append(i == samples.Count - 1 ? "}\n" : "},\n");
+        }
+        builder.AppendLine("  ]");
+        builder.AppendLine("}");
+        return builder.ToString();
+    }
+
+    private readonly struct SurfelBounds
+    {
+        public SurfelBounds(Vector3 min, Vector3 max)
+        {
+            Min = min;
+            Max = max;
+        }
+
+        public Vector3 Min { get; }
+        public Vector3 Max { get; }
+    }
+
+    private static SurfelBounds ComputeSurfelBounds(List<SurfelSample> samples)
+    {
+        if (samples.Count == 0)
+        {
+            return new SurfelBounds(Vector3.Zero, Vector3.Zero);
+        }
+
+        var min = samples[0].Position;
+        var max = samples[0].Position;
+        for (var i = 1; i < samples.Count; i++)
+        {
+            min = min.Min(samples[i].Position);
+            max = max.Max(samples[i].Position);
+        }
+
+        return new SurfelBounds(min, max);
+    }
+
+    private float EstimateReferenceSurfelRadius(Vector3 position)
+    {
+        const float baseRadius = 0.24f;
+        const float gridCellDiameter = 0.2f;
+        const float gridSize = 32.0f;
+        var cascadeRadius = gridCellDiameter * gridSize * 0.5f;
+        var distance = position.DistanceTo(_camera.GlobalPosition);
+        return baseRadius * Mathf.Max(1.0f, distance / cascadeRadius);
+    }
+
+    private static string JsonVector(Vector3 value)
+    {
+        return $"[{FormatFloat(value.X)},{FormatFloat(value.Y)},{FormatFloat(value.Z)}]";
+    }
+
+    private static string JsonColor(Color value)
+    {
+        return $"[{FormatFloat(value.R)},{FormatFloat(value.G)},{FormatFloat(value.B)}]";
+    }
+
+    private static string FormatFloat(float value)
+    {
+        return value.ToString("0.######", CultureInfo.InvariantCulture);
     }
 
     private static string MakeScreenshotDirectory(string directory)
