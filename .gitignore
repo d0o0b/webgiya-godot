@@ -6,5 +6,6 @@ obj/
 screenshots/**/*.png
 screenshots/**/*.json
 screenshots/**/*.import
+screenshots/**/*.md
 *.tmp
 *.log

@@ -60,6 +60,14 @@ Then compare a pair with:
 .\tools\compare-pair.ps1 -Reference screenshots\reference\cornell-box-reference.png -Candidate screenshots\cornell-box-combined-default-20260518-121129-131.png -Diff screenshots\cornell-diff.png -Report screenshots\cornell-compare.json
 ```
 
+For the prioritized visual parity pass, run:
+
+```powershell
+.\tools\run-visual-matrix.ps1 -Scenes cornell-box,sponza,leonardo -Modes direct,indirect,combined -Views default -Delay 2
+```
+
+The matrix writes `screenshots\matrix\visual-matrix.md`, captures Godot candidates with `--render-quality=ultra`, and compares any reference screenshots that pass the minimum-size validity check. Current headless browser reference captures on this Windows setup return the reference app error overlay, so they are marked `invalid-reference` instead of being used for metrics.
+
 ## Controls
 
 - Right mouse drag: look around.

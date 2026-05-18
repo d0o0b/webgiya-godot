@@ -60,8 +60,13 @@ public partial class Main : Node3D
         public float ShadowBias { get; init; } = 0.02f;
         public float ShadowNormalBias { get; init; } = 1.0f;
         public float SdfgiBounceFeedback { get; init; } = 0.65f;
+        public bool SdfgiReadSkyLight { get; init; } = true;
         public float SsaoRadius { get; init; } = 2.0f;
         public float SsilRadius { get; init; } = 5.0f;
+        public float TonemapExposure { get; init; } = 0.85f;
+        public float AmbientSkyContribution { get; init; } = 1.0f;
+        public float AdjustmentContrast { get; init; } = 1.02f;
+        public float AdjustmentSaturation { get; init; } = 1.0f;
     }
 
     private readonly struct SurfelSample
@@ -183,10 +188,16 @@ public partial class Main : Node3D
             HdrPath = "res://assets/exr/pizzo_pernice_puresky_2k.hdr",
             CameraPosition = new Vector3(0, 2.3f, 11),
             CameraTarget = new Vector3(0, 2.3f, 1),
+            AmbientEnergy = 0.55f,
             OcclusionShadowStrength = 0.5f,
             ShadowMaxDistance = 24.0f,
+            SdfgiBounceFeedback = 0.62f,
+            SdfgiReadSkyLight = true,
             SsaoRadius = 1.3f,
             SsilRadius = 3.0f,
+            TonemapExposure = 0.78f,
+            AmbientSkyContribution = 0.75f,
+            AdjustmentContrast = 1.0f,
         },
         new ScenePreset
         {
@@ -244,9 +255,12 @@ public partial class Main : Node3D
             ShadowMaxDistance = 110.0f,
             ShadowBias = 0.012f,
             ShadowNormalBias = 0.65f,
-            SdfgiBounceFeedback = 0.72f,
+            SdfgiBounceFeedback = 0.82f,
             SsaoRadius = 2.4f,
-            SsilRadius = 6.0f,
+            SsilRadius = 7.5f,
+            TonemapExposure = 0.95f,
+            AdjustmentContrast = 0.9f,
+            AdjustmentSaturation = 0.95f,
         },
         new ScenePreset
         {
@@ -267,9 +281,12 @@ public partial class Main : Node3D
             ShadowMaxDistance = 120.0f,
             ShadowBias = 0.012f,
             ShadowNormalBias = 0.65f,
-            SdfgiBounceFeedback = 0.72f,
+            SdfgiBounceFeedback = 0.82f,
             SsaoRadius = 2.4f,
-            SsilRadius = 6.0f,
+            SsilRadius = 7.5f,
+            TonemapExposure = 0.95f,
+            AdjustmentContrast = 0.9f,
+            AdjustmentSaturation = 0.95f,
         },
     };
 
@@ -321,8 +338,13 @@ public partial class Main : Node3D
     private float _presetShadowBias = 0.02f;
     private float _presetShadowNormalBias = 1.0f;
     private float _presetSdfgiBounceFeedback = 0.65f;
+    private bool _presetSdfgiReadSkyLight = true;
     private float _presetSsaoRadius = 2.0f;
     private float _presetSsilRadius = 5.0f;
+    private float _presetTonemapExposure = 0.85f;
+    private float _presetAmbientSkyContribution = 1.0f;
+    private float _presetAdjustmentContrast = 1.02f;
+    private float _presetAdjustmentSaturation = 1.0f;
     private RenderQuality _renderQuality = RenderQuality.High;
     private SurfelSamplingMode _surfelSamplingMode = SurfelSamplingMode.ReferenceVisible;
     private GiOutputMode _giMode = GiOutputMode.Combined;
@@ -812,8 +834,13 @@ public partial class Main : Node3D
         _presetShadowBias = preset.ShadowBias;
         _presetShadowNormalBias = preset.ShadowNormalBias;
         _presetSdfgiBounceFeedback = preset.SdfgiBounceFeedback;
+        _presetSdfgiReadSkyLight = preset.SdfgiReadSkyLight;
         _presetSsaoRadius = preset.SsaoRadius;
         _presetSsilRadius = preset.SsilRadius;
+        _presetTonemapExposure = preset.TonemapExposure;
+        _presetAmbientSkyContribution = preset.AmbientSkyContribution;
+        _presetAdjustmentContrast = preset.AdjustmentContrast;
+        _presetAdjustmentSaturation = preset.AdjustmentSaturation;
         _lightSpeed = 0.5f;
         _animateLight.ButtonPressed = false;
         _lightAnimationTime = 0.0f;
@@ -826,10 +853,10 @@ public partial class Main : Node3D
         _environment.Set("background_color", new Color(0.125f, 0.125f, 0.145f));
         _environment.Set("ambient_light_color", Colors.White);
         _environment.Set("ambient_light_source", 3);
-        _environment.Set("ambient_light_sky_contribution", 1.0f);
+        _environment.Set("ambient_light_sky_contribution", _presetAmbientSkyContribution);
         _environment.Set("reflected_light_source", 2);
         _environment.Set("tonemap_mode", 3);
-        _environment.Set("tonemap_exposure", 0.85f);
+        _environment.Set("tonemap_exposure", _presetTonemapExposure);
         _environment.Set("tonemap_white", 1.0f);
         _environment.Set("ssao_enabled", true);
         _environment.Set("ssao_radius", 2.0f);
@@ -838,13 +865,13 @@ public partial class Main : Node3D
         _environment.Set("ssil_radius", 5.0f);
         _environment.Set("sdfgi_enabled", true);
         _environment.Set("sdfgi_bounce_feedback", 0.65f);
-        _environment.Set("sdfgi_read_sky_light", true);
+        _environment.Set("sdfgi_read_sky_light", _presetSdfgiReadSkyLight);
         _environment.Set("glow_enabled", true);
         _environment.Set("glow_intensity", _renderQuality == RenderQuality.Balanced ? 0.04f : 0.08f);
         _environment.Set("adjustment_enabled", true);
         _environment.Set("adjustment_brightness", 1.0f);
-        _environment.Set("adjustment_contrast", 1.02f);
-        _environment.Set("adjustment_saturation", 1.0f);
+        _environment.Set("adjustment_contrast", _presetAdjustmentContrast);
+        _environment.Set("adjustment_saturation", _presetAdjustmentSaturation);
         ApplyPresetEnvironmentQuality();
 
         var texture = ResourceLoader.Load<Texture2D>(preset.HdrPath);
@@ -1673,8 +1700,8 @@ public partial class Main : Node3D
 
         return face switch
         {
-            0 => new Vector3(-half.X, py, qz),
-            1 => new Vector3(half.X, py, qz),
+            0 => new Vector3(-half.X, py, pz),
+            1 => new Vector3(half.X, py, pz),
             2 => new Vector3(px, -half.Y, qz),
             3 => new Vector3(px, half.Y, qz),
             4 => new Vector3(px, py, -half.Z),
@@ -2148,12 +2175,17 @@ public partial class Main : Node3D
           "forwardPlusApproximation": {
             "ambientEnergy": {{FormatFloat(_presetAmbientEnergy)}},
             "indirectIntensity": {{FormatFloat(_indirectIntensity)}},
+            "tonemapExposure": {{FormatFloat(_presetTonemapExposure)}},
+            "ambientSkyContribution": {{FormatFloat(_presetAmbientSkyContribution)}},
             "occlusionShadowStrength": {{FormatFloat(_presetOcclusionShadowStrength)}},
             "bleedReduction": {{FormatFloat(_presetBleedReduction)}},
             "albedoBoost": {{FormatFloat(_presetAlbedoBoost)}},
             "sdfgiBounceFeedback": {{FormatFloat(_presetSdfgiBounceFeedback)}},
+            "sdfgiReadSkyLight": {{_presetSdfgiReadSkyLight.ToString().ToLowerInvariant()}},
             "ssaoRadius": {{FormatFloat(_presetSsaoRadius)}},
-            "ssilRadius": {{FormatFloat(_presetSsilRadius)}}
+            "ssilRadius": {{FormatFloat(_presetSsilRadius)}},
+            "adjustmentContrast": {{FormatFloat(_presetAdjustmentContrast)}},
+            "adjustmentSaturation": {{FormatFloat(_presetAdjustmentSaturation)}}
           }
         }
         """;

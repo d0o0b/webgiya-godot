@@ -41,6 +41,8 @@ The first Godot slice establishes the verification loop and visual baseline:
 - Forward+ is now the accepted desktop target renderer for this port instead of a custom WebGPU-equivalent surfel GI pipeline.
 - Render quality presets configure viewport antialiasing/debanding, per-scene shadow distance/bias, SDFGI bounce feedback, SSAO, and SSIL.
 - Screenshot runs can export render metadata sidecars with camera, light, shadow, quality, SDFGI, SSAO, and SSIL settings.
+- Visual matrix runner captures the prioritized Cornell/Sponza/model scenes across direct, indirect, and combined output, then compares against valid reference screenshots when available.
+- Per-preset Forward+ tuning now covers exposure, sky contribution, SDFGI sky reads, SDFGI feedback, SSAO/SSIL radius, and color adjustment so scene-specific fixes do not regress every preset.
 - Runtime light controls for azimuth, elevation, intensity, auto-animation, and animation speed.
 - Runtime surfel preview controls for visibility, size, and sample budget.
 - Runtime surfel light controls for enable, count, and energy.
@@ -56,6 +58,7 @@ Godot does not expose the same WebGPU compute render graph through normal scene 
 4. Audit imported material differences per asset: normal maps, alpha, roughness, metallic, and color-space differences.
 5. Match the reference direct, indirect, combined, and debug overlay intent within Godot's Forward+ constraints.
 6. Use the reference capture helper and built-in compare command to tune each scene/camera preset.
+7. Replace the current invalid headless reference screenshots with captures from a normal WebGPU-capable browser session; the local headless path currently returns the reference app error overlay.
 
 ## Acceptance Targets
 
