@@ -17,6 +17,7 @@ public partial class Main : Node3D
     private const int FaceNegZ = 1 << 4;
     private const int FacePosZ = 1 << 5;
     private const int AllBoxFaces = FaceNegX | FacePosX | FaceNegY | FacePosY | FaceNegZ | FacePosZ;
+    private const float ReferenceSurfelSpacing = 0.08f;
 
     private enum GiOutputMode
     {
@@ -45,16 +46,18 @@ public partial class Main : Node3D
 
     private readonly struct SurfelSample
     {
-        public SurfelSample(Vector3 position, Vector3 normal, Color color)
+        public SurfelSample(Vector3 position, Vector3 normal, Color color, float displayScale = 1.0f)
         {
             Position = position;
             Normal = normal;
             Color = color;
+            DisplayScale = displayScale;
         }
 
         public Vector3 Position { get; }
         public Vector3 Normal { get; }
         public Color Color { get; }
+        public float DisplayScale { get; }
     }
 
     private readonly struct TriangleSurfaceSample
@@ -429,6 +432,7 @@ public partial class Main : Node3D
         {
             VertexColorUseAsAlbedo = true,
             ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            CullMode = BaseMaterial3D.CullModeEnum.Disabled,
         };
         _surfelPreview = new MultiMeshInstance3D
         {
@@ -1011,14 +1015,16 @@ public partial class Main : Node3D
         {
             TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
             UseColors = true,
-            Mesh = new BoxMesh { Size = Vector3.One },
+            Mesh = new QuadMesh { Size = Vector2.One },
             InstanceCount = samples.Count,
             VisibleInstanceCount = samples.Count,
         };
 
-        var basis = Basis.Identity.Scaled(Vector3.One * _surfelPreviewSize);
+        var sceneScale = EstimateSurfelPreviewSceneScale(samples);
         for (var i = 0; i < samples.Count; i++)
         {
+            var size = _surfelPreviewSize * sceneScale * samples[i].DisplayScale;
+            var basis = MakeSurfelPreviewBasis(samples[i].Normal, size);
             multimesh.SetInstanceTransform(i, new Transform3D(basis, samples[i].Position));
             multimesh.SetInstanceColor(i, samples[i].Color);
         }
@@ -1026,6 +1032,15 @@ public partial class Main : Node3D
         _surfelPreview.Multimesh = multimesh;
         _surfelPreview.Visible = true;
         GD.Print($"Built surfel preview: {samples.Count} surfels");
+    }
+
+    private static Basis MakeSurfelPreviewBasis(Vector3 normal, float size)
+    {
+        var z = normal.LengthSquared() > 0.001f ? normal.Normalized() : Vector3.Up;
+        var helper = Mathf.Abs(z.Dot(Vector3.Up)) > 0.94f ? Vector3.Right : Vector3.Up;
+        var x = helper.Cross(z).Normalized();
+        var y = z.Cross(x).Normalized();
+        return new Basis(x * size, y * size, z);
     }
 
     private void RebuildSurfelLights()
@@ -1310,6 +1325,31 @@ public partial class Main : Node3D
         }
     }
 
+    private static float EstimateSurfelPreviewSceneScale(List<SurfelSample> samples)
+    {
+        if (samples.Count == 0)
+        {
+            return 1.0f;
+        }
+
+        var min = samples[0].Position;
+        var max = samples[0].Position;
+        for (var i = 1; i < samples.Count; i++)
+        {
+            min = min.Min(samples[i].Position);
+            max = max.Max(samples[i].Position);
+        }
+
+        var diagonal = Mathf.Max(0.001f, (max - min).Length());
+        return Mathf.Clamp(9.0f / diagonal, 0.28f, 1.1f);
+    }
+
+    private static float EstimateSurfelDisplayScale(float representedArea, int representedCount)
+    {
+        var spacing = Mathf.Sqrt(Mathf.Max(0.000001f, representedArea / Mathf.Max(1, representedCount)));
+        return Mathf.Clamp(spacing / ReferenceSurfelSpacing, 0.4f, 1.15f);
+    }
+
     private readonly struct BoxFace
     {
         public BoxFace(int index, Vector3 normal, float width, float height, float area)
@@ -1356,6 +1396,7 @@ public partial class Main : Node3D
         var columns = Mathf.Max(1, Mathf.RoundToInt(Mathf.Sqrt(target * aspect)));
         var rows = Mathf.Max(1, Mathf.CeilToInt(target / (float)columns));
         var normal = (transform.Basis * face.Normal).Normalized();
+        var displayScale = EstimateSurfelDisplayScale(face.Area, columns * rows);
 
         for (var y = 0; y < rows && samples.Count < budget; y++)
         {
@@ -1364,7 +1405,7 @@ public partial class Main : Node3D
             {
                 var u = (x + 0.5f) / columns;
                 var local = GetBoxFaceLocalPoint(face.Index, half, u, v);
-                samples.Add(new SurfelSample(transform * local, normal, color));
+                samples.Add(new SurfelSample(transform * local, normal, color, displayScale));
             }
         }
     }
@@ -1424,6 +1465,7 @@ public partial class Main : Node3D
     private static void AddTriangleAreaSamples(List<TriangleSurfaceSample> triangles, SurfaceMaterialSampler materialSampler, float totalArea, int target, List<SurfelSample> samples, int budget)
     {
         target = Mathf.Max(1, target);
+        var displayScale = EstimateSurfelDisplayScale(totalArea, target);
         var triangleIndex = 0;
         var cumulative = triangles[0].Area;
         for (var sampleIndex = 0; sampleIndex < target && samples.Count < budget; sampleIndex++)
@@ -1447,7 +1489,7 @@ public partial class Main : Node3D
                 ? triangle.UvA * b0 + triangle.UvB * b1 + triangle.UvC * b2
                 : Vector2.Zero;
             var color = materialSampler.Sample(uv);
-            samples.Add(new SurfelSample(position, triangle.Normal, color));
+            samples.Add(new SurfelSample(position, triangle.Normal, color, displayScale));
         }
     }
 
