@@ -37,10 +37,18 @@ public partial class Main : Node3D
                 BuildMarbleBustScene();
                 break;
             case "sponza":
-                AddImportedScene("res://assets/models/sponza.glb", Vector3.Zero, Vector3.Zero, Vector3.One);
+                AddImportedScene(
+                    new[] { "res://assets/models/Sponza-Draco.glb", "res://assets/models/sponza.glb" },
+                    Vector3.Zero,
+                    Vector3.Zero,
+                    Vector3.One);
                 break;
             case "beast":
-                AddImportedScene("res://assets/models/sponza.glb", Vector3.Zero, Vector3.Zero, Vector3.One);
+                AddImportedScene(
+                    new[] { "res://assets/models/Sponza-Draco.glb", "res://assets/models/sponza.glb" },
+                    Vector3.Zero,
+                    Vector3.Zero,
+                    Vector3.One);
                 AddImportedScene(
                     "res://assets/models/inferno-beast-from-space-from-jurafjvs-cc0-2.glb",
                     new Vector3(0, 1.83f, 0),

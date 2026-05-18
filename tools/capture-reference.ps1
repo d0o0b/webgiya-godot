@@ -8,9 +8,12 @@ param(
     [int]$VirtualTimeBudgetMs = 30000,
     [ValidateSet("HeadedCdp", "Headless")]
     [string]$CaptureMode = "HeadedCdp",
+    [ValidateSet("https", "http")]
+    [string]$Protocol = "https",
     [int]$DevToolsPort = 9222,
     [int]$WaitSeconds = 5,
     [int]$CdpCommandTimeoutSeconds = 60,
+    [int]$ReadyTimeoutSeconds = 30,
     [switch]$UsePageScreenshotFallback
 )
 
@@ -77,6 +80,7 @@ function Wait-For-DevToolsTarget {
                 Where-Object {
                     $_.type -eq "page" -and
                     $_.webSocketDebuggerUrl -and
+                    $_.url -like "http*" -and
                     $_.url -match "scene=$([Regex]::Escape($Scene))"
                 } |
                 Select-Object -First 1
@@ -146,6 +150,78 @@ function Send-CdpCommand {
     }
 }
 
+function Get-ReferencePageState {
+    param(
+        [System.Net.WebSockets.ClientWebSocket]$Socket,
+        [int]$Id
+    )
+
+    $state = Send-CdpCommand -Socket $Socket -Id $Id -Method "Runtime.evaluate" -Params @{
+        expression = @"
+(() => {
+  const canvases = Array.from(document.querySelectorAll('canvas'));
+  const canvas = canvases[0] || null;
+  const loading = document.querySelector('#loading-overlay');
+  const error = document.querySelector('#error-overlay');
+  const errorMessage = document.querySelector('#error-message');
+  const isHidden = (element) => !element || element.hidden || element.classList.contains('hidden');
+  const text = document.body ? document.body.innerText : '';
+  return {
+    url: location.href,
+    title: document.title,
+    readyState: document.readyState,
+    canvasCount: canvases.length,
+    canvasWidth: canvas ? canvas.width : 0,
+    canvasHeight: canvas ? canvas.height : 0,
+    loadingVisible: !isHidden(loading),
+    errorVisible: !isHidden(error),
+    errorText: errorMessage ? errorMessage.textContent : '',
+    bodyText: text.slice(0, 1200)
+  };
+})()
+"@
+        returnByValue = $true
+    }
+
+    return $state.result.value
+}
+
+function Wait-For-ReferenceFrameReady {
+    param(
+        [System.Net.WebSockets.ClientWebSocket]$Socket,
+        [int]$StartId,
+        [string]$Scene,
+        [int]$TimeoutSeconds
+    )
+
+    $deadline = (Get-Date).AddSeconds([Math]::Max($TimeoutSeconds, 5))
+    $id = $StartId
+    $lastState = $null
+
+    while ((Get-Date) -lt $deadline) {
+        $state = Get-ReferencePageState -Socket $Socket -Id $id
+        $id++
+        $lastState = $state
+
+        if ($state.errorVisible) {
+            $diagnostic = $state | ConvertTo-Json -Depth 6 -Compress
+            throw "Reference app reported an error for '$Scene': $diagnostic"
+        }
+
+        if ($state.canvasCount -gt 0 -and $state.canvasWidth -gt 0 -and $state.canvasHeight -gt 0 -and !$state.loadingVisible) {
+            return @{
+                NextId = $id
+                State = $state
+            }
+        }
+
+        Start-Sleep -Milliseconds 250
+    }
+
+    $lastDiagnostic = if ($lastState) { $lastState | ConvertTo-Json -Depth 6 -Compress } else { "no state collected" }
+    throw "Timed out waiting for reference canvas for '$Scene'. Last page state: $lastDiagnostic"
+}
+
 function Capture-HeadedCdpScreenshot {
     param(
         [string]$Browser,
@@ -165,9 +241,14 @@ function Capture-HeadedCdpScreenshot {
         "--remote-debugging-port=$DevToolsPort",
         "--user-data-dir=$profileDir",
         "--ignore-certificate-errors",
+        "--allow-insecure-localhost",
         "--enable-unsafe-webgpu",
         "--ignore-gpu-blocklist",
         "--disable-gpu-sandbox",
+        "--disable-web-security",
+        "--disable-extensions",
+        "--disable-component-extensions-with-background-pages",
+        "--unsafely-treat-insecure-origin-as-secure=$Url",
         "--use-angle=vulkan",
         "--enable-features=Vulkan,WebGPU,UnsafeWebGPU",
         "--no-first-run",
@@ -195,6 +276,13 @@ function Capture-HeadedCdpScreenshot {
                 mobile = $false
             } | Out-Null
 
+            $ready = Wait-For-ReferenceFrameReady `
+                -Socket $socket `
+                -StartId ($id + 1) `
+                -Scene $Scene `
+                -TimeoutSeconds $script:ReadyTimeoutSeconds
+            $id = $ready.NextId
+
             Start-Sleep -Seconds ([Math]::Min([Math]::Max($WaitSeconds, 2), 5))
 
             $id++
@@ -221,7 +309,11 @@ function Capture-HeadedCdpScreenshot {
             }
 
             if (!$script:UsePageScreenshotFallback) {
-                $diagnostic = $canvasResult | ConvertTo-Json -Depth 4 -Compress
+                $pageState = Get-ReferencePageState -Socket $socket -Id ($id + 1)
+                $diagnostic = @{
+                    canvas = $canvasResult
+                    page = $pageState
+                } | ConvertTo-Json -Depth 6 -Compress
                 throw "Canvas screenshot did not return PNG data for '$Scene'. Canvas diagnostic: $diagnostic"
             }
 
@@ -229,6 +321,7 @@ function Capture-HeadedCdpScreenshot {
             $capture = Send-CdpCommand -Socket $socket -Id $id -Method "Page.captureScreenshot" -Params @{
                 format = "png"
                 fromSurface = $true
+                captureBeyondViewport = $false
             }
 
             [System.IO.File]::WriteAllBytes($OutPath, [Convert]::FromBase64String($capture.data))
@@ -264,9 +357,14 @@ function Capture-HeadlessScreenshot {
     $args = @(
         "--headless=new",
         "--ignore-certificate-errors",
+        "--allow-insecure-localhost",
         "--enable-unsafe-webgpu",
         "--ignore-gpu-blocklist",
         "--disable-gpu-sandbox",
+        "--disable-web-security",
+        "--disable-extensions",
+        "--disable-component-extensions-with-background-pages",
+        "--unsafely-treat-insecure-origin-as-secure=$Url",
         "--use-angle=vulkan",
         "--enable-features=Vulkan,WebGPU,UnsafeWebGPU",
         "--window-size=$Width,$Height",
@@ -289,13 +387,13 @@ New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
 $browser = Resolve-Browser
 $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
-$vite = Start-Process -FilePath $npm -ArgumentList @("run", "dev", "--", "--host", "127.0.0.1", "--port", "$Port") -WorkingDirectory $ReferenceProject -WindowStyle Hidden -PassThru
+$vite = Start-Process -FilePath $npm -ArgumentList @("run", "dev", "--", "--host", "127.0.0.1", "--port", "$Port", "--strictPort") -WorkingDirectory $ReferenceProject -WindowStyle Hidden -PassThru
 
 try {
     Wait-For-Port -HostName "127.0.0.1" -PortNumber $Port
 
     foreach ($scene in $Scenes) {
-        $url = "https://127.0.0.1:$Port/?scene=$scene"
+        $url = "$Protocol`://127.0.0.1:$Port/?scene=$scene"
         $outPath = Join-Path $OutputDir "$scene-reference.png"
 
         if ($CaptureMode -eq "HeadedCdp") {

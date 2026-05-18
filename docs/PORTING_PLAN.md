@@ -21,7 +21,7 @@ The first Godot slice establishes the verification loop and visual baseline:
 - C# scene controller as the main implementation language.
 - Scene preset switcher matching the reference preset list.
 - Imported reference GLTF/GLB/HDR assets.
-- Sponza uses the non-Draco `sponza.glb` asset because Godot 4.7 beta did not load `Sponza-Draco.glb` in verification.
+- Sponza and Beast now prefer the reference `Sponza-Draco.glb` asset, with `sponza.glb` kept as a fallback if import fails.
 - Cornell-box primitive reconstruction in Godot.
 - Orbit camera, pan, zoom, and keyboard movement.
 - Screenshot capture for current scene and all presets.
@@ -36,7 +36,7 @@ The first Godot slice establishes the verification loop and visual baseline:
 - Surfel-derived colored OmniLight field is the active GI approximation in combined and indirect modes.
 - Built-in image comparison command with JSON metrics and visual diff output.
 - Browser-based reference screenshot helper for the original Vite/WebGPU project.
-- Reference helper warns when headless browser capture returns the loading overlay instead of a completed WebGPU frame.
+- Reference helper now uses strict Vite ports, waits for a real canvas, disables extension targets, and reports page diagnostics when the reference app errors before a usable capture.
 - Direct, indirect, and combined output modes approximated with surfel-derived lights, ambient, SSAO, and directional light controls.
 - Forward+ is now the accepted desktop target renderer for this port instead of a custom WebGPU-equivalent surfel GI pipeline.
 - Render quality presets configure viewport antialiasing/debanding, per-scene shadow distance/bias, SSAO, surfel lights, and color adjustment.
@@ -55,7 +55,7 @@ The first Godot slice establishes the verification loop and visual baseline:
 
 Godot does not expose the same WebGPU compute render graph through normal scene rendering. A close port should be staged:
 
-1. Replace the invalid headless reference screenshots with captures from a normal WebGPU-capable browser session; the local headless path currently returns the reference app error overlay.
+1. Fix the reference app automated-capture runtime error before objective visual diffs can run. The current headed CDP path reaches the correct page and canvas, but the reference app reports `Cannot read properties of null (reading 'isInterleavedBufferAttribute')` while building its BVH in the automated browser session.
 2. Tune Forward+ presets against stable reference screenshots instead of porting the WebGPU compute pipeline.
 3. Audit imported material differences per asset: normal maps, alpha, roughness, metallic, texture filtering, and color-space differences.
 4. Improve indirect mode semantics inside Godot's Forward+ constraints. It is currently scene rendering under surfel/ambient lighting, not a separate fullscreen indirect-light texture like the reference.

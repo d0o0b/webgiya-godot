@@ -52,7 +52,7 @@ Reference screenshots can be captured from the original Vite/WebGPU project with
 .\tools\capture-reference.ps1 -Scenes cornell-box,sponza
 ```
 
-On some Windows/browser builds, headless Edge may capture the reference loading overlay instead of a completed WebGPU frame. The script warns when the output is suspiciously small; in that case, capture the reference image from a normal WebGPU-capable browser session and use the same compare command.
+The reference helper launches Vite on a strict local port, waits for a real canvas, and reports the page state if the original app errors before a usable frame is available. On this Windows browser setup the current blocker is the reference app error `Cannot read properties of null (reading 'isInterleavedBufferAttribute')` during automated BVH creation, so manual browser captures may still be needed for objective diffs.
 
 Then compare a pair with:
 
