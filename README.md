@@ -24,6 +24,14 @@ godot --path . --scene res://scenes/Main.tscn -- --screenshots --screenshot-scen
 
 Use `--screenshot-hide-ui` when capturing images for diff comparison. Use `--surfel-debug` to render the GPU-instanced surfel preview.
 
+Surfel lighting options:
+
+```powershell
+godot --path . --scene res://scenes/Main.tscn -- --screenshots --screenshot-scenes=cornell-box --screenshot-modes=combined --surfel-light-count=32 --surfel-light-energy=0.45
+```
+
+The colored surfel-derived OmniLight approximation is off by default because point-light placement can reveal artifacts in simple Cornell-style scenes. Enable it with `--surfel-lights=true` when tuning color bleeding. `--surfel-light-count` is clamped to 64.
+
 ## Image comparison
 
 ```powershell
@@ -57,6 +65,7 @@ Then compare a pair with:
 - M: cycle output mode.
 - R: reset camera to current scene preset.
 - G: toggle surfel preview.
+- GI Lights toggle: enable or disable surfel-derived colored light approximation.
 - 1-6: load scene preset.
 - F12: capture current scene.
 - Ctrl+F12: capture all scene presets.

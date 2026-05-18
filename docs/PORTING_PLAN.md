@@ -29,12 +29,14 @@ The first Godot slice establishes the verification loop and visual baseline:
 - Screenshot sweeps across output modes and camera view variants.
 - UI-free screenshot option for image-diff captures.
 - GPU-instanced surfel preview/debug mode generated from scene mesh samples.
+- Optional low-count surfel-derived colored OmniLight field for bounced color bleeding experiments in combined and indirect modes.
 - Built-in image comparison command with JSON metrics and visual diff output.
 - Browser-based reference screenshot helper for the original Vite/WebGPU project.
 - Reference helper warns when headless browser capture returns the loading overlay instead of a completed WebGPU frame.
 - Direct, indirect, and combined output modes approximated with Godot SDFGI, SSIL, ambient, and directional light controls.
 - Runtime light controls for azimuth, elevation, intensity, auto-animation, and animation speed.
 - Runtime surfel preview controls for visibility, size, and sample budget.
+- Runtime surfel light controls for enable, count, and energy.
 - Forward+ lighting with high-resolution directional shadows, SDFGI, SSIL, SSAO, glow, and HDR sky fallback.
 
 ## Work Remaining For 1:1 Rendering

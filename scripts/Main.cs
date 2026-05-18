@@ -33,13 +33,15 @@ public partial class Main : Node3D
 
     private readonly struct SurfelSample
     {
-        public SurfelSample(Vector3 position, Color color)
+        public SurfelSample(Vector3 position, Vector3 normal, Color color)
         {
             Position = position;
+            Normal = normal;
             Color = color;
         }
 
         public Vector3 Position { get; }
+        public Vector3 Normal { get; }
         public Color Color { get; }
     }
 
@@ -117,12 +119,14 @@ public partial class Main : Node3D
     private Godot.Environment _environment = null!;
     private Node3D _sceneRoot = null!;
     private MultiMeshInstance3D _surfelPreview = null!;
+    private Node3D _surfelLightRoot = null!;
     private CanvasLayer _uiLayer = null!;
     private OptionButton _sceneSelect = null!;
     private OptionButton _giModeSelect = null!;
     private Label _statusLabel = null!;
     private CheckButton _animateLight = null!;
     private CheckButton _surfelDebug = null!;
+    private CheckButton _surfelLightsToggle = null!;
     private HSlider _indirectSlider = null!;
     private HSlider _azimuthSlider = null!;
     private HSlider _elevationSlider = null!;
@@ -130,6 +134,8 @@ public partial class Main : Node3D
     private HSlider _lightSpeedSlider = null!;
     private HSlider _surfelSizeSlider = null!;
     private HSlider _surfelBudgetSlider = null!;
+    private HSlider _surfelLightCountSlider = null!;
+    private HSlider _surfelLightEnergySlider = null!;
     private int _currentPresetIndex;
     private Vector3 _target = Vector3.Zero;
     private float _yaw;
@@ -150,9 +156,12 @@ public partial class Main : Node3D
     private bool _syncingControls;
     private string _screenshotViewName = "default";
     private bool _surfelPreviewEnabled;
+    private bool _surfelLightsEnabled;
     private bool _hideUiDuringScreenshots;
     private float _surfelPreviewSize = 0.035f;
     private int _surfelPreviewBudget = 8192;
+    private int _surfelLightCount = 24;
+    private float _surfelLightEnergy = 0.16f;
     private const float MaxScreenshotDelaySeconds = 5.0f;
 
     public override void _Ready()
@@ -162,6 +171,9 @@ public partial class Main : Node3D
 
         var args = ParseArguments();
         _surfelPreviewEnabled = args.ContainsKey("surfel-debug");
+        _surfelLightsEnabled = ParseBool(args.GetValueOrDefault("surfel-lights"), false) && !args.ContainsKey("no-surfel-lights");
+        _surfelLightCount = Mathf.Clamp(ParseInt(args.GetValueOrDefault("surfel-light-count"), _surfelLightCount), 0, 64);
+        _surfelLightEnergy = Mathf.Clamp(ParseFloat(args.GetValueOrDefault("surfel-light-energy"), _surfelLightEnergy), 0.0f, 2.0f);
         LoadPreset(0);
         if (args.ContainsKey("compare"))
         {
@@ -311,6 +323,9 @@ public partial class Main : Node3D
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
         };
         AddChild(_surfelPreview);
+
+        _surfelLightRoot = new Node3D { Name = "SurfelLights" };
+        AddChild(_surfelLightRoot);
     }
 
     private void BuildUi()
@@ -380,6 +395,11 @@ public partial class Main : Node3D
         _indirectSlider.ValueChanged += value =>
         {
             _indirectIntensity = (float)value;
+            if (_syncingControls)
+            {
+                return;
+            }
+
             ApplyOutputMode();
         };
         renderControls.AddChild(_indirectSlider);
@@ -420,7 +440,7 @@ public partial class Main : Node3D
         {
             Name = "DebugControls",
             Position = new Vector2(15, 100),
-            CustomMinimumSize = new Vector2(720, 36),
+            CustomMinimumSize = new Vector2(1040, 36),
         };
         _uiLayer.AddChild(debugControls);
 
@@ -433,6 +453,11 @@ public partial class Main : Node3D
         _surfelSizeSlider.ValueChanged += value =>
         {
             _surfelPreviewSize = (float)value;
+            if (_syncingControls)
+            {
+                return;
+            }
+
             RebuildSurfelPreview();
         };
         debugControls.AddChild(_surfelSizeSlider);
@@ -442,15 +467,53 @@ public partial class Main : Node3D
         _surfelBudgetSlider.ValueChanged += value =>
         {
             _surfelPreviewBudget = Mathf.RoundToInt((float)value);
+            if (_syncingControls)
+            {
+                return;
+            }
+
             RebuildSurfelPreview();
+            RebuildSurfelLights();
         };
         debugControls.AddChild(_surfelBudgetSlider);
+
+        _surfelLightsToggle = new CheckButton { Text = "GI Lights", CustomMinimumSize = new Vector2(110, 34) };
+        _surfelLightsToggle.Toggled += SetSurfelLightsEnabled;
+        debugControls.AddChild(_surfelLightsToggle);
+
+        debugControls.AddChild(MakeLabel("Count"));
+        _surfelLightCountSlider = MakeSlider(0.0, 64.0, 1.0);
+        _surfelLightCountSlider.ValueChanged += value =>
+        {
+            _surfelLightCount = Mathf.RoundToInt((float)value);
+            if (_syncingControls)
+            {
+                return;
+            }
+
+            RebuildSurfelLights();
+        };
+        debugControls.AddChild(_surfelLightCountSlider);
+
+        debugControls.AddChild(MakeLabel("Energy"));
+        _surfelLightEnergySlider = MakeSlider(0.0, 2.0, 0.01);
+        _surfelLightEnergySlider.ValueChanged += value =>
+        {
+            _surfelLightEnergy = (float)value;
+            if (_syncingControls)
+            {
+                return;
+            }
+
+            RebuildSurfelLights();
+        };
+        debugControls.AddChild(_surfelLightEnergySlider);
 
         _statusLabel = new Label
         {
             Text = "",
             Position = new Vector2(15, 142),
-            CustomMinimumSize = new Vector2(720, 24),
+            CustomMinimumSize = new Vector2(1040, 24),
             Modulate = new Color(0.92f, 0.92f, 0.92f, 0.88f),
         };
         _uiLayer.AddChild(_statusLabel);
@@ -521,6 +584,7 @@ public partial class Main : Node3D
         SyncControls();
         ApplyOutputMode();
         RebuildSurfelPreview();
+        RebuildSurfelLights();
         SetStatus($"{preset.Label} loaded");
     }
 
@@ -618,6 +682,7 @@ public partial class Main : Node3D
         _environment.Set("sdfgi_energy", _presetIndirectEnergy * indirectScale);
         _environment.Set("ssil_intensity", _giMode == GiOutputMode.Direct ? 0.0f : indirectScale);
         ApplySunEnergy();
+        RebuildSurfelLights();
     }
 
     private void ApplySunEnergy()
@@ -637,6 +702,9 @@ public partial class Main : Node3D
         _surfelDebug.ButtonPressed = _surfelPreviewEnabled;
         _surfelSizeSlider.Value = _surfelPreviewSize;
         _surfelBudgetSlider.Value = _surfelPreviewBudget;
+        _surfelLightsToggle.ButtonPressed = _surfelLightsEnabled;
+        _surfelLightCountSlider.Value = _surfelLightCount;
+        _surfelLightEnergySlider.Value = _surfelLightEnergy;
         _syncingControls = false;
     }
 
@@ -647,6 +715,8 @@ public partial class Main : Node3D
             _sceneRoot.RemoveChild(child);
             child.QueueFree();
         }
+
+        ClearSurfelLights();
     }
 
     private void BuildCornellScene()
@@ -790,6 +860,17 @@ public partial class Main : Node3D
         }
     }
 
+    private void SetSurfelLightsEnabled(bool enabled)
+    {
+        _surfelLightsEnabled = enabled;
+        if (_syncingControls)
+        {
+            return;
+        }
+
+        RebuildSurfelLights();
+    }
+
     private void RebuildSurfelPreview()
     {
         if (_surfelPreview == null)
@@ -804,9 +885,7 @@ public partial class Main : Node3D
             return;
         }
 
-        var samples = new List<SurfelSample>(Mathf.Clamp(_surfelPreviewBudget, 1, 32768));
-        var meshCount = Mathf.Max(1, CountMeshInstances(_sceneRoot));
-        CollectSurfelSamples(_sceneRoot, samples, samples.Capacity, meshCount);
+        var samples = CreateSurfelSamples(_surfelPreviewBudget);
 
         var multimesh = new MultiMesh
         {
@@ -827,6 +906,184 @@ public partial class Main : Node3D
         _surfelPreview.Multimesh = multimesh;
         _surfelPreview.Visible = true;
         GD.Print($"Built surfel preview: {samples.Count} surfels");
+    }
+
+    private void RebuildSurfelLights()
+    {
+        if (_surfelLightRoot == null)
+        {
+            return;
+        }
+
+        ClearSurfelLights();
+        if (!_surfelLightsEnabled || _surfelLightCount <= 0 || _giMode == GiOutputMode.Direct)
+        {
+            _surfelLightRoot.Visible = false;
+            return;
+        }
+
+        var samples = CreateSurfelSamples(Mathf.Clamp(Mathf.Max(_surfelPreviewBudget, _surfelLightCount * 64), 256, 32768));
+        if (samples.Count == 0)
+        {
+            _surfelLightRoot.Visible = false;
+            return;
+        }
+
+        var selected = SelectSurfelLightSamples(samples, _surfelLightCount);
+        if (selected.Count == 0)
+        {
+            _surfelLightRoot.Visible = false;
+            return;
+        }
+
+        var range = EstimateSurfelLightRange(samples);
+        var center = EstimateSurfelCenter(samples);
+        var energyBase = _surfelLightEnergy * Mathf.Max(0.0f, _indirectIntensity) / Mathf.Sqrt(Mathf.Max(1.0f, selected.Count));
+        for (var i = 0; i < selected.Count; i++)
+        {
+            var sample = selected[i];
+            var colorfulness = Colorfulness(sample.Color);
+            var normal = sample.Normal.LengthSquared() > 0.001f ? sample.Normal.Normalized() : (center - sample.Position).Normalized();
+            var light = new OmniLight3D
+            {
+                Name = $"SurfelLight{i + 1:00}",
+                Position = sample.Position + normal * Mathf.Min(0.18f, range * 0.08f),
+                LightColor = sample.Color,
+                LightEnergy = energyBase * Mathf.Lerp(0.85f, 1.55f, Mathf.Clamp(colorfulness, 0.0f, 1.0f)),
+                LightSpecular = 0.0f,
+                ShadowEnabled = false,
+                OmniRange = range,
+                OmniAttenuation = 0.8f,
+            };
+            _surfelLightRoot.AddChild(light);
+        }
+
+        _surfelLightRoot.Visible = true;
+        GD.Print($"Built surfel lights: {selected.Count} lights, range {range:0.00}, energy {energyBase:0.000}");
+    }
+
+    private void ClearSurfelLights()
+    {
+        if (_surfelLightRoot == null)
+        {
+            return;
+        }
+
+        foreach (var child in _surfelLightRoot.GetChildren())
+        {
+            _surfelLightRoot.RemoveChild(child);
+            child.QueueFree();
+        }
+    }
+
+    private List<SurfelSample> CreateSurfelSamples(int budget)
+    {
+        budget = Mathf.Clamp(budget, 1, 32768);
+        var samples = new List<SurfelSample>(budget);
+        var meshCount = Mathf.Max(1, CountMeshInstances(_sceneRoot));
+        CollectSurfelSamples(_sceneRoot, samples, budget, meshCount);
+        return samples;
+    }
+
+    private static List<SurfelSample> SelectSurfelLightSamples(List<SurfelSample> samples, int count)
+    {
+        count = Mathf.Clamp(count, 0, 64);
+        if (count == 0 || samples.Count == 0)
+        {
+            return new List<SurfelSample>();
+        }
+
+        var center = EstimateSurfelCenter(samples);
+        var candidates = samples
+            .Select(sample => new { Sample = sample, Score = Colorfulness(sample.Color) + Luminance(sample.Color) * 0.15f })
+            .Where(candidate => candidate.Score > 0.08f && IsInwardFacing(candidate.Sample, center))
+            .OrderByDescending(candidate => candidate.Score)
+            .ToList();
+
+        if (candidates.Count < count)
+        {
+            candidates = samples
+                .Select(sample => new { Sample = sample, Score = Colorfulness(sample.Color) + Luminance(sample.Color) * 0.15f })
+                .Where(candidate => candidate.Score > 0.08f)
+                .OrderByDescending(candidate => candidate.Score)
+                .ToList();
+        }
+        var colored = new List<SurfelSample>(count);
+        var minSpacing = EstimateSurfelLightRange(samples) * 0.45f;
+        var minSpacingSquared = minSpacing * minSpacing;
+        foreach (var candidate in candidates)
+        {
+            if (colored.All(sample => sample.Position.DistanceSquaredTo(candidate.Sample.Position) >= minSpacingSquared))
+            {
+                colored.Add(candidate.Sample);
+                if (colored.Count >= count)
+                {
+                    return colored;
+                }
+            }
+        }
+
+        if (colored.Count >= count)
+        {
+            return colored;
+        }
+
+        var fallbackStep = Math.Max(1, samples.Count / Math.Max(1, count - colored.Count));
+        for (var i = fallbackStep / 2; i < samples.Count && colored.Count < count; i += fallbackStep)
+        {
+            colored.Add(samples[i]);
+        }
+
+        return colored;
+    }
+
+    private static float EstimateSurfelLightRange(List<SurfelSample> samples)
+    {
+        var min = samples[0].Position;
+        var max = samples[0].Position;
+        for (var i = 1; i < samples.Count; i++)
+        {
+            min = min.Min(samples[i].Position);
+            max = max.Max(samples[i].Position);
+        }
+
+        return Mathf.Clamp((max - min).Length() * 0.12f, 1.4f, 18.0f);
+    }
+
+    private static Vector3 EstimateSurfelCenter(List<SurfelSample> samples)
+    {
+        var min = samples[0].Position;
+        var max = samples[0].Position;
+        for (var i = 1; i < samples.Count; i++)
+        {
+            min = min.Min(samples[i].Position);
+            max = max.Max(samples[i].Position);
+        }
+
+        return (min + max) * 0.5f;
+    }
+
+    private static bool IsInwardFacing(SurfelSample sample, Vector3 center)
+    {
+        if (sample.Normal.LengthSquared() <= 0.001f)
+        {
+            return true;
+        }
+
+        var toCenter = center - sample.Position;
+        return toCenter.LengthSquared() <= 0.001f || sample.Normal.Normalized().Dot(toCenter.Normalized()) > 0.15f;
+    }
+
+    private static float Colorfulness(Color color)
+    {
+        var max = Mathf.Max(color.R, Mathf.Max(color.G, color.B));
+        var min = Mathf.Min(color.R, Mathf.Min(color.G, color.B));
+        return max - min;
+    }
+
+    private static float Luminance(Color color)
+    {
+        return color.R * 0.2126f + color.G * 0.7152f + color.B * 0.0722f;
     }
 
     private void CollectSurfelSamples(Node node, List<SurfelSample> samples, int budget, int meshCount)
@@ -883,12 +1140,18 @@ public partial class Main : Node3D
             }
 
             var color = GetMeshSurfaceColor(meshInstance, surface);
+            var normals = arrays.Count > (int)Mesh.ArrayType.Normal
+                ? arrays[(int)Mesh.ArrayType.Normal].AsVector3Array()
+                : Array.Empty<Vector3>();
             var stride = Mathf.Max(1, vertices.Length / perSurfaceTarget);
             var transform = meshInstance.GlobalTransform;
 
             for (var i = 0; i < vertices.Length && samples.Count < budget; i += stride)
             {
-                samples.Add(new SurfelSample(transform * vertices[i], color));
+                var normal = normals.Length > i
+                    ? (transform.Basis * normals[i]).Normalized()
+                    : Vector3.Up;
+                samples.Add(new SurfelSample(transform * vertices[i], normal, color));
             }
         }
     }
@@ -922,8 +1185,17 @@ public partial class Main : Node3D
                         4 => new Vector3(px, py, -half.Z),
                         _ => new Vector3(px, py, half.Z),
                     };
+                    var localNormal = face switch
+                    {
+                        0 => new Vector3(-1, 0, 0),
+                        1 => new Vector3(1, 0, 0),
+                        2 => new Vector3(0, -1, 0),
+                        3 => new Vector3(0, 1, 0),
+                        4 => new Vector3(0, 0, -1),
+                        _ => new Vector3(0, 0, 1),
+                    };
 
-                    samples.Add(new SurfelSample(transform * local, color));
+                    samples.Add(new SurfelSample(transform * local, (transform.Basis * localNormal).Normalized(), color));
                 }
             }
         }
@@ -1150,7 +1422,8 @@ public partial class Main : Node3D
             var preset = _presets[_currentPresetIndex];
             var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture);
             var debugSuffix = _surfelPreviewEnabled ? "-surfels" : "";
-            var path = System.IO.Path.Combine(absoluteDirectory, $"{preset.Id}-{_giMode.ToString().ToLowerInvariant()}-{_screenshotViewName}{debugSuffix}-{timestamp}.png");
+            var lightSuffix = _surfelLightsEnabled && _giMode != GiOutputMode.Direct ? "-surfelgi" : "";
+            var path = System.IO.Path.Combine(absoluteDirectory, $"{preset.Id}-{_giMode.ToString().ToLowerInvariant()}-{_screenshotViewName}{debugSuffix}{lightSuffix}-{timestamp}.png");
             var error = image.SavePng(path);
             if (error == Error.Ok)
             {
@@ -1369,6 +1642,28 @@ public partial class Main : Node3D
         return float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : fallback;
+    }
+
+    private static int ParseInt(string? value, int fallback)
+    {
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : fallback;
+    }
+
+    private static bool ParseBool(string? value, bool fallback)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return fallback;
+        }
+
+        return value.ToLowerInvariant() switch
+        {
+            "1" or "true" or "yes" or "on" => true,
+            "0" or "false" or "no" or "off" => false,
+            _ => fallback,
+        };
     }
 
     private static GiOutputMode? ParseGiMode(string value)
